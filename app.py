@@ -1,0 +1,1255 @@
+"""
+Advanced Audio Analyzer
+A Physics-Based Audio & Signal Processing Laboratory.
+Built with Streamlit, Librosa, SciPy, PyWavelets, and Plotly.
+"""
+
+import io
+import os
+import tempfile
+from typing import Optional, Tuple
+import librosa
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import pywt
+import scipy.fft
+import scipy.signal
+import soundfile as sf
+import streamlit as st
+
+# ==========================================
+# PAGE CONFIGURATION
+# ==========================================
+st.set_page_config(
+    page_title="Advanced Audio Analyzer",
+    page_icon="🎧",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ==========================================
+# CUSTOM HASHING FUNCTION FOR STREAMLIT CACHE
+# ==========================================
+def fast_hash_np(x: np.ndarray):
+    """Generates a fast hash for numpy arrays to prevent stale data in cache."""
+    if x.size == 0:
+        return 0
+    return hash((x.shape, x[0], np.sum(x[::100])))
+
+FAST_NP_HASH = {np.ndarray: fast_hash_np}
+
+
+# ==========================================
+# CACHED CORE FUNCTIONS (Optimization)
+# ==========================================
+@st.cache_data(show_spinner=False)
+def load_audio_file(
+    file_bytes: bytes, file_extension: str
+) -> Tuple[Optional[np.ndarray], Optional[int], str]:
+  """Saves uploaded bytes to a temp file, loads with librosa, returns mono audio array and sample rate."""
+  temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_extension)
+  try:
+    temp_file.write(file_bytes)
+    temp_file.close()
+    y, sr = librosa.load(temp_file.name, sr=None, mono=True)
+    return y, sr, ""
+  except Exception as e:
+    return None, None, str(e)
+  finally:
+    os.unlink(temp_file.name)
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def downsample_array(
+    array: np.ndarray, max_points: int = 10000
+) -> np.ndarray:
+  """Downsamples a 1D array for safe, fast Plotly rendering."""
+  if len(array) <= max_points:
+    return array
+  factor = len(array) // max_points
+  return array[::factor]
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def downsample_fft(
+    freqs: np.ndarray, mags: np.ndarray, max_points: int = 5000
+) -> Tuple[np.ndarray, np.ndarray]:
+  """Downsamples frequency domain data using max pooling to preserve critical single-bin peaks."""
+  if len(mags) <= max_points:
+    return freqs, mags
+  factor = len(mags) // max_points
+  pad_size = (factor - len(mags) % factor) % factor
+  mags_padded = np.pad(
+      mags, (0, pad_size), mode="constant", constant_values=-np.inf
+  )
+  freqs_padded = np.pad(freqs, (0, pad_size), mode="edge")
+
+  mags_pooled = mags_padded.reshape(-1, factor).max(axis=1)
+  freqs_pooled = freqs_padded.reshape(-1, factor).mean(axis=1)
+
+  return freqs_pooled, mags_pooled
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_fft(
+    y: np.ndarray, sr: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  """Computes windowed FFT and returns frequencies, magnitude, and dB scale."""
+  window = np.hanning(len(y))
+  y_windowed = y * window
+  fft_result = scipy.fft.rfft(y_windowed)
+  freqs = scipy.fft.rfftfreq(len(y), 1 / sr)
+
+  magnitude = np.abs(fft_result)
+  magnitude_db = librosa.amplitude_to_db(magnitude, ref=np.max)
+
+  return freqs, magnitude, magnitude_db
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_welch_psd(y: np.ndarray, sr: int, nperseg: int = 4096) -> Tuple[np.ndarray, np.ndarray]:
+  """Computes Power Spectral Density using Welch's method for reduced variance."""
+  actual_nperseg = min(nperseg, len(y))
+  if actual_nperseg == 0:
+      return np.array([]), np.array([])
+      
+  freqs, psd = scipy.signal.welch(y, sr, nperseg=actual_nperseg)
+  psd_db = 10 * np.log10(psd + 1e-12)
+  return freqs, psd_db
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_stft(y: np.ndarray, n_fft: int, hop_length: int) -> np.ndarray:
+  """Computes STFT and returns Magnitude in dB."""
+  stft_result = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
+  magnitude = np.abs(stft_result)
+  return librosa.amplitude_to_db(magnitude, ref=np.max)
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_cwt(
+    y: np.ndarray, sr: int, wavelet: str = "morl", num_scales: int = 64
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  """Computes Continuous Wavelet Transform (CWT) and returns time, frequencies, and power spectrum."""
+  scales = np.arange(1, num_scales + 1)
+  coefficients, frequencies = pywt.cwt(
+      y, scales, wavelet, sampling_period=1.0 / sr
+  )
+  power = np.abs(coefficients) ** 2
+  time_axis = np.linspace(0, len(y) / sr, len(y))
+
+  return time_axis, frequencies, power
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_hilbert(y: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+  """Applies Hilbert Transform to extract amplitude envelope and instantaneous frequency."""
+  analytic_signal = scipy.signal.hilbert(y)
+  amplitude_envelope = np.abs(analytic_signal)
+  instantaneous_phase = np.unwrap(np.angle(analytic_signal))
+  instantaneous_frequency = (np.diff(instantaneous_phase) / (2.0*np.pi) * sr)
+  instantaneous_frequency = np.append(instantaneous_frequency, instantaneous_frequency[-1])
+  time_axis = np.arange(len(y)) / sr
+  
+  return time_axis, y, amplitude_envelope, instantaneous_frequency
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_filter(
+    y: np.ndarray,
+    sr: int,
+    filter_type: str,
+    cutoff: float,
+    order: int,
+    cutoff2: float = None,
+) -> np.ndarray:
+  """Applies a Butterworth filter to the audio signal."""
+  nyquist = 0.5 * sr
+
+  if filter_type in ["Low-Pass", "High-Pass"]:
+    normal_cutoff = cutoff / nyquist
+    btype = "low" if filter_type == "Low-Pass" else "high"
+    b, a = scipy.signal.butter(order, normal_cutoff, btype=btype, analog=False)
+  else:
+    normal_cutoff1 = cutoff / nyquist
+    normal_cutoff2 = cutoff2 / nyquist
+    btype = "bandpass" if filter_type == "Band-Pass" else "bandstop"
+    b, a = scipy.signal.butter(
+        order, [normal_cutoff1, normal_cutoff2], btype=btype, analog=False
+    )
+
+  filtered_y = scipy.signal.filtfilt(b, a, y)
+  return filtered_y
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_filter_zpk(
+    sr: int, filter_type: str, cutoff: float, order: int, cutoff2: float = None
+) -> Tuple[np.ndarray, np.ndarray]:
+  """Computes Zeros and Poles (Z-Plane) for the selected digital filter."""
+  nyquist = 0.5 * sr
+  if filter_type in ["Low-Pass", "High-Pass"]:
+    normal_cutoff = cutoff / nyquist
+    btype = "low" if filter_type == "Low-Pass" else "high"
+    b, a = scipy.signal.butter(order, normal_cutoff, btype=btype, analog=False)
+  else:
+    normal_cutoff1 = cutoff / nyquist
+    normal_cutoff2 = cutoff2 / nyquist
+    btype = "bandpass" if filter_type == "Band-Pass" else "bandstop"
+    b, a = scipy.signal.butter(
+        order, [normal_cutoff1, normal_cutoff2], btype=btype, analog=False
+    )
+  z, p, _ = scipy.signal.tf2zpk(b, a)
+  return z, p
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def compute_cross_correlation(y: np.ndarray, sr: int, delay_sec: float, noise_lvl: float) -> Tuple[np.ndarray, np.ndarray, float]:
+  """Simulates an echo with noise, and uses Cross-Correlation to estimate the delay."""
+  limit = sr * 5  # Limit to 5s for fast computation
+  y_sub = y[:limit] if len(y) > limit else y
+  
+  delay_samples = int(delay_sec * sr)
+  y_delayed = np.pad(y_sub, (delay_samples, 0), mode='constant')[:len(y_sub)]
+  y_delayed += noise_lvl * np.random.randn(len(y_delayed))
+  
+  correlation = scipy.signal.correlate(y_delayed, y_sub, mode='full')
+  lags = np.arange(-len(y_sub) + 1, len(y_delayed)) / sr
+  
+  peak_idx = np.argmax(correlation)
+  estimated_delay_sec = lags[peak_idx]
+  
+  return lags, correlation, estimated_delay_sec
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_spectral_gating(y: np.ndarray, threshold_db: float) -> np.ndarray:
+  """Basic noise reduction using spectral gating."""
+  S = librosa.stft(y)
+  S_mag, S_phase = librosa.magphase(S)
+  S_db = librosa.amplitude_to_db(S_mag, ref=np.max)
+
+  mask = (S_db > threshold_db).astype(float)
+
+  S_clean = S_mag * mask * S_phase
+  y_clean = librosa.istft(S_clean)
+  return y_clean
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def estimate_rt60(
+    y: np.ndarray, sr: int
+) -> Tuple[
+    float,
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    float,
+    float,
+    np.ndarray,
+    np.ndarray,
+]:
+  """Estimates RT60 using linear regression on the energy decay curve (RT20 method)."""
+  rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
+  times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
+  rms_db = librosa.amplitude_to_db(rms, ref=np.max)
+
+  peak_idx = np.argmax(rms_db)
+  decay_db = rms_db[peak_idx:]
+  decay_times = times[peak_idx:]
+
+  if len(decay_db) < 10:
+    return 0.0, None, None, 0.0, 0.0, decay_times, decay_db
+
+  try:
+    start_idx = np.where(decay_db <= -5)[0][0]
+    end_idx = np.where(decay_db <= -25)[0][0]
+
+    if start_idx >= end_idx:
+      return 0.0, None, None, 0.0, 0.0, decay_times, decay_db
+
+    region_db = decay_db[start_idx:end_idx]
+    region_times = decay_times[start_idx:end_idx]
+
+    slope, intercept = np.polyfit(region_times, region_db, 1)
+
+    if slope >= 0:  
+      return 0.0, None, None, 0.0, 0.0, decay_times, decay_db
+
+    rt60 = -60.0 / slope
+
+    if rt60 < 0 or rt60 > 20:
+      return 0.0, None, None, 0.0, 0.0, decay_times, decay_db
+
+    return rt60, region_times, region_db, slope, intercept, decay_times, decay_db
+  except IndexError:
+    return 0.0, None, None, 0.0, 0.0, decay_times, decay_db
+
+
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_doppler_effect(
+    y: np.ndarray, sr: int, velocity_ms: float, closest_distance: float = 5.0, c: float = 343.0
+) -> np.ndarray:
+  """Simulates the Doppler effect and inverse square law amplitude dropoff."""
+  velocity_ms = min(velocity_ms, c * 0.95)
+
+  t_src = np.arange(len(y)) / sr
+  t_mid = t_src[-1] / 2.0
+
+  x_src = velocity_ms * (t_src - t_mid)
+  r_src = np.sqrt(x_src**2 + closest_distance**2)
+
+  t_obs = t_src + (r_src / c)
+  t_obs_uniform = np.arange(0, np.max(t_obs), 1.0 / sr)
+
+  y_obs = np.interp(t_obs_uniform, t_obs, y, left=0.0, right=0.0)
+  r_obs_uniform = np.interp(t_obs_uniform, t_obs, r_src)
+  amplitude_envelope = closest_distance / r_obs_uniform
+
+  return y_obs * amplitude_envelope
+
+
+# ==========================================
+# UI COMPONENTS & MAIN LOGIC
+# ==========================================
+def main():
+  # --- Sidebar ---
+  with st.sidebar:
+    st.title("🎧 Advanced Audio Analyzer")
+    st.markdown("*Physics-Based Audio & Signal Processing Laboratory*")
+    st.divider()
+
+    audio_source = st.radio(
+        "Audio Source", ["Upload Audio File", "Generate Pure Wave"]
+    )
+
+    if audio_source == "Upload Audio File":
+      uploaded_file = st.file_uploader(
+          "Upload Audio File", type=["wav", "mp3", "flac", "ogg", "m4a"]
+      )
+    else:
+      st.markdown("### 🌊 Wave Generator")
+      wave_type = st.selectbox(
+          "Waveform Type",
+          ["Sine", "Square", "Sawtooth", "Fourier Synthesis"],
+      )
+      wave_freq = st.slider("Fundamental Freq (Hz)", 20.0, 2000.0, 440.0)
+      wave_dur = st.slider("Duration (s)", 1.0, 10.0, 3.0)
+
+      amp_1 = amp_2 = amp_3 = amp_4 = amp_5 = 0.0
+      wave_amp = 0.5
+
+      if wave_type == "Fourier Synthesis":
+        st.markdown("#### Harmonic Amplitudes")
+        st.caption("Build complex waves using the Principle of Superposition.")
+        amp_1 = st.slider("Fundamental (f₀)", 0.0, 1.0, 1.0)
+        amp_2 = st.slider("2nd Harmonic (2f₀)", 0.0, 1.0, 0.0)
+        amp_3 = st.slider("3rd Harmonic (3f₀)", 0.0, 1.0, 0.0)
+        amp_4 = st.slider("4th Harmonic (4f₀)", 0.0, 1.0, 0.0)
+        amp_5 = st.slider("5th Harmonic (5f₀)", 0.0, 1.0, 0.0)
+      else:
+        wave_amp = st.slider("Amplitude", 0.0, 1.0, 0.5)
+
+      uploaded_file = None
+
+    st.divider()
+    st.markdown("### ⚙️ System Info")
+    st.info(
+        "Uses **Librosa** for extraction, **SciPy** for DSP, **PyWavelets** for"
+        " CWT, and **Plotly** for interactive visualization."
+    )
+
+  # --- Main Content / Audio Loading ---
+
+  y = None
+  sr = 44100
+  file_bytes = None
+  file_name = ""
+
+  if audio_source == "Upload Audio File":
+    if uploaded_file is None:
+      st.info(
+          "👋 Welcome! Please upload an audio file in the sidebar or generate a"
+          " wave to begin analysis."
+      )
+      return
+
+    file_bytes = uploaded_file.read()
+    file_ext = "." + uploaded_file.name.split(".")[-1].lower()
+    file_name = uploaded_file.name
+
+    with st.spinner("Loading and decoding audio..."):
+      y, sr, err = load_audio_file(file_bytes, file_ext)
+
+    if err or y is None:
+      st.error(f"Error loading file: {err}")
+      return
+
+  elif audio_source == "Generate Pure Wave":
+    with st.spinner("Synthesizing physical wave..."):
+      t = np.linspace(0, wave_dur, int(sr * wave_dur), endpoint=False)
+
+      if wave_type == "Sine":
+        y = wave_amp * np.sin(2 * np.pi * wave_freq * t)
+      elif wave_type == "Square":
+        y = wave_amp * scipy.signal.square(2 * np.pi * wave_freq * t)
+      elif wave_type == "Sawtooth":
+        y = wave_amp * scipy.signal.sawtooth(2 * np.pi * wave_freq * t)
+      elif wave_type == "Fourier Synthesis":
+        y = (
+            amp_1 * np.sin(2 * np.pi * wave_freq * t)
+            + amp_2 * np.sin(2 * np.pi * (wave_freq * 2) * t)
+            + amp_3 * np.sin(2 * np.pi * (wave_freq * 3) * t)
+            + amp_4 * np.sin(2 * np.pi * (wave_freq * 4) * t)
+            + amp_5 * np.sin(2 * np.pi * (wave_freq * 5) * t)
+        )
+
+        max_val = np.max(np.abs(y))
+        if max_val > 1.0:
+          y = y / max_val
+        elif max_val == 0.0:
+          y = np.zeros_like(y)
+
+      file_name = f"Generated_{wave_type.replace(' ', '_')}_{wave_freq}Hz.wav"
+
+      buffer = io.BytesIO()
+      sf.write(buffer, y, sr, format="WAV")
+      file_bytes = buffer.getvalue()
+
+  if len(y) == 0:
+    st.error("The audio array is empty.")
+    return
+
+  duration = librosa.get_duration(y=y, sr=sr)
+  nyquist = sr / 2.0
+  num_samples = len(y)
+
+  # --- Application Tabs ---
+  tabs = st.tabs([
+      "📁 Audio",
+      "🌊 Waveform",
+      "⚡ FFT Spectrum",
+      "🌈 Spectrogram",
+      "📉 Wavelet CWT",
+      "🎵 Pitch & Tempo",
+      "🔬 Audio Features",
+      "🌀 Chaos Dynamics",
+      "🎛️ Kinematics & DSP",
+      "📊 Data Export",
+  ])
+
+  # ==========================================
+  # TAB 1: Audio Metadata
+  # ==========================================
+  with tabs[0]:
+    st.header("Audio File Information")
+    st.audio(file_bytes)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Filename", file_name)
+    m2.metric("Sample Rate", f"{sr} Hz")
+    m3.metric("Duration", f"{duration:.2f} s")
+    m4.metric("Total Samples", f"{num_samples:,}")
+
+    m5, m6, m7, m8 = st.columns(4)
+    m5.metric("Nyquist Frequency", f"{nyquist:,.1f} Hz")
+    m6.metric("File Size", f"{len(file_bytes) / (1024*1024):.2f} MB")
+    m7.metric("Channels (Analyzed)", "1 (Mono)")
+
+    peak_amp = np.max(np.abs(y))
+    m8.metric("Peak Amplitude", f"{peak_amp:.4f}")
+
+  # ==========================================
+  # TAB 2: Waveform & Hilbert Transform
+  # ==========================================
+  with tabs[1]:
+    st.header("Time Domain Analysis")
+    st.markdown("Displays the instantaneous amplitude (sound pressure) over time.")
+
+    with st.spinner("Generating Waveform..."):
+      time_array = np.linspace(0, duration, num_samples)
+
+      ds_points = 20000
+      y_plot = downsample_array(y, ds_points)
+      t_plot = downsample_array(time_array, ds_points)
+
+      fig = go.Figure()
+      fig.add_trace(
+          go.Scatter(
+              x=t_plot,
+              y=y_plot,
+              mode="lines",
+              line=dict(color="#1DB954", width=1),
+              name="Amplitude",
+          )
+      )
+      fig.update_layout(
+          title="Interactive Waveform",
+          xaxis_title="Time (seconds)",
+          yaxis_title="Amplitude",
+          template="plotly_dark",
+          hovermode="x",
+      )
+      st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Show Hilbert Transform (Analytic Signal & Envelope)"):
+      st.markdown("Extracts the **Amplitude Envelope** and **Instantaneous Frequency** using the Analytic Signal.")
+      st.warning("Note: Processing the Hilbert transform for very long files might take some time.")
+      if st.button("Compute Hilbert Transform"):
+        with st.spinner("Applying Hilbert Transform on the entire audio..."):
+          h_time, h_y, h_env, h_inst_f = compute_hilbert(y, sr)
+          
+          ds_h = 5000
+          ht_plot = downsample_array(h_time, ds_h)
+          hy_plot = downsample_array(h_y, ds_h)
+          henv_plot = downsample_array(h_env, ds_h)
+          hinst_plot = downsample_array(h_inst_f, ds_h)
+          
+          fig_env = go.Figure()
+          fig_env.add_trace(go.Scatter(x=ht_plot, y=hy_plot, mode='lines', line=dict(color='rgba(29, 185, 84, 0.4)', width=1), name='Original Signal'))
+          fig_env.add_trace(go.Scatter(x=ht_plot, y=henv_plot, mode='lines', line=dict(color='#FF5722', width=2), name='Amplitude Envelope'))
+          fig_env.update_layout(title="Signal & Amplitude Envelope", xaxis_title="Time (s)", yaxis_title="Amplitude", template="plotly_dark")
+          st.plotly_chart(fig_env, use_container_width=True)
+          
+          fig_instf = go.Figure()
+          threshold = np.max(h_env) * 0.05
+          hinst_plot_masked = np.where(henv_plot > threshold, hinst_plot, np.nan)
+          
+          fig_instf.add_trace(go.Scatter(x=ht_plot, y=hinst_plot_masked, mode='markers', marker=dict(color='#00BCD4', size=2), name='Inst. Freq'))
+          fig_instf.update_layout(title="Instantaneous Frequency (Filtered for noise)", xaxis_title="Time (s)", yaxis_title="Frequency (Hz)", template="plotly_dark")
+          st.plotly_chart(fig_instf, use_container_width=True)
+
+    with st.expander("Show Advanced Time-Domain Metrics & RT60 Acoustics"):
+      col_t1, col_t2, col_t3, col_t4 = st.columns(4)
+      rms = librosa.feature.rms(y=y)[0]
+      zcr = librosa.feature.zero_crossing_rate(y)[0]
+
+      col_t1.metric("Mean RMS Energy", f"{np.mean(rms):.4f}")
+      col_t2.metric("Mean Zero Crossing Rate", f"{np.mean(zcr):.4f}")
+      col_t3.metric(
+          "Crest Factor",
+          f"{peak_amp / np.maximum(1e-10, np.mean(rms)):.2f}",
+      )
+
+      with st.spinner("Estimating RT60..."):
+        rt60, r_times, r_db, slope, intercept, d_times, d_db = estimate_rt60(
+            y, sr
+        )
+
+      if rt60 > 0:
+        col_t4.metric("Est. RT60 (Reverb Time)", f"{rt60:.2f} s")
+
+        st.markdown("#### Energy Decay Curve & RT60 Extrapolation")
+        st.caption(
+            "Acoustic physics measures RT60 by tracking the logarithmic energy"
+            " decay after a loud impulse."
+        )
+
+        fig_rt60 = go.Figure()
+
+        plot_d_times = downsample_array(d_times, 2000)
+        plot_d_db = downsample_array(d_db, 2000)
+
+        fig_rt60.add_trace(
+            go.Scatter(
+                x=plot_d_times,
+                y=plot_d_db,
+                mode="lines",
+                line=dict(color="#E91E63", width=2),
+                name="Signal Decay (dB)",
+            )
+        )
+
+        if r_times is not None:
+          t_start = r_times[0]
+          t_end = (-60 - intercept) / slope
+
+          fit_times = [t_start, t_end]
+          fit_db = [slope * t_start + intercept, -60]
+
+          fig_rt60.add_trace(
+              go.Scatter(
+                  x=fit_times,
+                  y=fit_db,
+                  mode="lines",
+                  line=dict(color="#00BCD4", width=2, dash="dash"),
+                  name="RT60 Regression Fit",
+              )
+          )
+
+        fig_rt60.update_layout(
+            xaxis_title="Time (s)",
+            yaxis_title="Energy (dB)",
+            template="plotly_dark",
+            height=300,
+        )
+        st.plotly_chart(fig_rt60, use_container_width=True)
+      else:
+        col_t4.metric("Est. RT60", "N/A")
+        st.info(
+            "Could not calculate RT60. This requires a sharp impulsive sound in"
+            " a room with a clear decay tail."
+        )
+
+  # ==========================================
+  # TAB 3: FFT Spectrum & Welch's Method
+  # ==========================================
+  with tabs[2]:
+    st.header("Frequency Domain Analysis (FFT) & Harmonic Distortion")
+
+    safe_max_freq = max(100, int(nyquist)) 
+    max_freq = st.slider(
+        "Maximum Frequency Display (Hz)",
+        min_value=100,
+        max_value=safe_max_freq,
+        value=safe_max_freq,
+        step=100,
+    )
+
+    with st.spinner("Computing FFT..."):
+      freqs, mag, mag_db = compute_fft(y, sr)
+
+      valid_idx = freqs <= max_freq
+      f_plot, m_plot = downsample_fft(freqs[valid_idx], mag_db[valid_idx], 5000)
+
+      fig_fft = go.Figure()
+      fig_fft.add_trace(
+          go.Scatter(
+              x=f_plot,
+              y=m_plot,
+              mode="lines",
+              line=dict(color="#FF5722", width=1),
+              name="Magnitude (dB)",
+          )
+      )
+      fig_fft.update_layout(
+          title="Power Spectrum",
+          xaxis_title="Frequency (Hz)",
+          yaxis_title="Magnitude (dB)",
+          template="plotly_dark",
+          hovermode="x",
+      )
+
+      dom_idx = np.argmax(mag)
+      dom_freq = freqs[dom_idx]
+
+      for i in range(2, 6):
+        harmonic_freq = dom_freq * i
+        if harmonic_freq <= max_freq:
+          fig_fft.add_vline(
+              x=harmonic_freq,
+              line_width=1.5,
+              line_dash="dash",
+              line_color="rgba(255, 255, 255, 0.5)",
+              annotation_text=f"{i}f₀",
+              annotation_position="top right",
+              annotation_font=dict(color="rgba(255, 255, 255, 0.7)", size=10),
+          )
+
+      st.plotly_chart(fig_fft, use_container_width=True)
+
+      harmonic_sq_sum = 0.0
+      fund_mag = mag[dom_idx]
+
+      for i in range(2, 11):
+        h_freq = dom_freq * i
+        if h_freq > freqs[-1]:
+          break
+        idx = np.argmin(np.abs(freqs - h_freq))
+        window = mag[max(0, idx - 3) : min(len(mag), idx + 4)]
+        h_mag = np.max(window) if len(window) > 0 else 0
+        harmonic_sq_sum += h_mag**2
+
+      thd = (
+          (np.sqrt(harmonic_sq_sum) / fund_mag) * 100.0 if fund_mag > 0 else 0.0
+      )
+
+      col_f1, col_f2 = st.columns(2)
+      col_f1.success(f"**Dominant Frequency:** {dom_freq:.2f} Hz")
+      col_f2.info(f"**Total Harmonic Distortion (THD):** {thd:.2f}%")
+                
+    st.divider()
+    st.subheader("Welch's Method (Power Spectral Density)")
+    
+    nperseg = st.selectbox("Window Size (nperseg)", [1024, 2048, 4096, 8192], index=2)
+    if st.button("Compute PSD (Welch)"):
+        with st.spinner("Computing Welch's PSD..."):
+            w_freqs, w_psd_db = compute_welch_psd(y, sr, nperseg=nperseg)
+            if len(w_freqs) > 0:
+                valid_w_idx = w_freqs <= max_freq
+                wf_plot, wpsd_plot = downsample_fft(w_freqs[valid_w_idx], w_psd_db[valid_w_idx], 5000)
+                
+                fig_welch = go.Figure()
+                fig_welch.add_trace(go.Scatter(x=wf_plot, y=wpsd_plot, mode='lines', line=dict(color='#8BC34A', width=1.5), name="Welch PSD"))
+                fig_welch.update_layout(title="Welch's Power Spectral Density", xaxis_title="Frequency (Hz)", yaxis_title="Power (dB)", template="plotly_dark")
+                st.plotly_chart(fig_welch, use_container_width=True)
+            else:
+                st.error("Audio is too short for the selected window size.")
+
+  # ==========================================
+  # TAB 4: Spectrogram & 3D Waterfall
+  # ==========================================
+  with tabs[3]:
+    st.header("Short-Time Fourier Transform (STFT) & 3D Waterfall")
+
+    c1, c2, c3, c4 = st.columns(4)
+    n_fft = c1.selectbox(
+        "FFT Size (Resolution)", options=[512, 1024, 2048, 4096], index=2
+    )
+    hop_length = c2.selectbox(
+        "Hop Length", options=[256, 512, 1024, 2048], index=1
+    )
+    y_scale = c3.radio("Frequency Scale", options=["Linear", "Logarithmic"])
+    plot_type = c4.radio("Plot Dimension", options=["2D Heatmap", "3D Waterfall"])
+
+    with st.spinner(f"Generating {plot_type}..."):
+      S_db = compute_stft(y, n_fft, hop_length)
+
+      max_time_bins = 400 if plot_type == "3D Waterfall" else 800
+      max_freq_bins = 200 if plot_type == "3D Waterfall" else 400
+
+      time_factor = max(1, S_db.shape[1] // max_time_bins)
+      freq_factor = max(1, S_db.shape[0] // max_freq_bins)
+
+      S_db_plot = S_db[::freq_factor, ::time_factor]
+
+      t_axis = librosa.frames_to_time(
+          np.arange(S_db.shape[1]), sr=sr, hop_length=hop_length
+      )[::time_factor]
+      f_axis = librosa.fft_frequencies(sr=sr, n_fft=n_fft)[::freq_factor]
+
+      if plot_type == "2D Heatmap":
+        fig_stft = go.Figure(
+            data=go.Heatmap(
+                z=S_db_plot, x=t_axis, y=f_axis, colorscale="Inferno"
+            )
+        )
+
+        if y_scale == "Logarithmic":
+          fig_stft.update_layout(yaxis_type="log")
+
+        fig_stft.update_layout(
+            title="2D Spectrogram",
+            xaxis_title="Time (s)",
+            yaxis_title="Frequency (Hz)",
+            template="plotly_dark",
+        )
+      else:
+        fig_stft = go.Figure(
+            data=[
+                go.Surface(
+                    z=S_db_plot, x=t_axis, y=f_axis, colorscale="Inferno"
+                )
+            ]
+        )
+
+        scene_dict = dict(
+            xaxis_title="Time (s)",
+            yaxis_title="Frequency (Hz)",
+            zaxis_title="Magnitude (dB)",
+            camera=dict(eye=dict(x=1.5, y=1.5, z=1.2)),
+        )
+
+        if y_scale == "Logarithmic":
+          scene_dict["yaxis"] = dict(type="log", title="Frequency (Hz)")
+
+        fig_stft.update_layout(
+            title="3D Cumulative Spectral Decay (Waterfall)",
+            scene=scene_dict,
+            template="plotly_dark",
+            height=700,
+            margin=dict(l=0, r=0, b=0, t=40),
+        )
+
+      st.plotly_chart(fig_stft, use_container_width=True)
+
+  # ==========================================
+  # TAB 5: Continuous Wavelet Transform (CWT)
+  # ==========================================
+  with tabs[4]:
+    st.header("Continuous Wavelet Transform (CWT)")
+    st.markdown(
+        "CWT is computationally intensive. Select a specific time slice to analyze below to prevent browser crashes."
+    )
+
+    col_c1, col_c2, col_c3 = st.columns(3)
+    with col_c1:
+      cwt_start = st.slider("Start Time (seconds)", 0.0, max(0.0, float(duration - 0.1)), 0.0)
+    with col_c2:
+      cwt_duration = st.slider("Duration to Analyze (seconds)", 0.1, 5.0, 1.0)
+    with col_c3:
+      wavelet_name = st.selectbox("Wavelet Family", ["morl", "mexh", "cmor"], index=0)
+      
+    num_scales = st.slider("Scale Resolution", min_value=16, max_value=128, value=64, step=16)
+
+    if st.button("Compute CWT Spectrum"):
+      with st.spinner("Calculating Continuous Wavelet Transform..."):
+        
+        start_sample = int(cwt_start * sr)
+        end_sample = min(len(y), int((cwt_start + cwt_duration) * sr))
+        y_cwt = y[start_sample:end_sample]
+
+        if len(y_cwt) > 0:
+            t_axis, f_axis, power_matrix = compute_cwt(
+                y_cwt, sr, wavelet=wavelet_name, num_scales=num_scales
+            )
+            
+            # Adjust time axis for correct display
+            t_axis += cwt_start
+
+            fig_cwt = go.Figure(
+                data=go.Heatmap(
+                    z=power_matrix,
+                    x=t_axis,
+                    y=f_axis,
+                    colorscale="Viridis",
+                )
+            )
+
+            fig_cwt.update_layout(
+                title=f"CWT Power Scalogram ({wavelet_name} wavelet)",
+                xaxis_title="Time (s)",
+                yaxis_title="Pseudo-Frequency (Hz)",
+                template="plotly_dark",
+                height=500,
+            )
+            st.plotly_chart(fig_cwt, use_container_width=True)
+        else:
+            st.error("Invalid time selection.")
+
+  # ==========================================
+  # TAB 6: Pitch & Tempo
+  # ==========================================
+  with tabs[5]:
+    st.header("Pitch & Rhythm Analysis")
+
+    c_pitch, c_tempo = st.columns(2)
+
+    with c_pitch:
+      st.subheader("Pitch Estimation (YIN)")
+      st.info("Calculates fundamental frequency ($f_0$).")
+      
+      if st.button("Estimate Pitch"):
+        with st.spinner("Calculating pitch over the entire track (this may take time for long audio)..."):
+          # Fixed Target SR dynamically instead of hardcoding 11025
+          target_sr = min(sr, 11025)
+          y_pitch_resampled = librosa.resample(
+              y, orig_sr=sr, target_sr=target_sr
+          )
+
+          f0, voiced_flag, voiced_probs = librosa.pyin(
+              y_pitch_resampled,
+              fmin=librosa.note_to_hz("C2"),
+              fmax=librosa.note_to_hz("C7"),
+              sr=target_sr,
+          )
+          times = librosa.times_like(f0, sr=target_sr)
+
+          f0_voiced = np.where(voiced_flag, f0, np.nan)
+          valid_f0 = f0_voiced[~np.isnan(f0_voiced)]
+
+          if len(valid_f0) > 0:
+            median_pitch = np.median(valid_f0)
+            st.metric("Median Pitch", f"{median_pitch:.1f} Hz")
+
+            fig_pitch = go.Figure()
+            fig_pitch.add_trace(
+                go.Scatter(
+                    x=times,
+                    y=f0_voiced,
+                    mode="markers",
+                    marker=dict(size=3, color="#00BCD4"),
+                )
+            )
+            fig_pitch.update_layout(
+                title="Pitch Tracking",
+                xaxis_title="Time (s)",
+                yaxis_title="Frequency (Hz)",
+                template="plotly_dark",
+            )
+            st.plotly_chart(fig_pitch, use_container_width=True)
+          else:
+            st.warning("No clear pitch detected (audio might be unvoiced/noise).")
+
+    with c_tempo:
+      st.subheader("Tempo & Beat Tracking")
+      if st.button("Estimate Tempo"):
+        with st.spinner("Tracking beats..."):
+          tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+          beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+
+          tempo_val = tempo[0] if isinstance(tempo, np.ndarray) else tempo
+          st.metric("Estimated Tempo", f"{tempo_val:.1f} BPM")
+
+          fig_beats = go.Figure()
+          fig_beats.add_trace(
+              go.Scatter(
+                  x=beat_times,
+                  y=np.ones_like(beat_times),
+                  mode="markers",
+                  marker=dict(
+                      symbol="line-ns",
+                      size=30,
+                      color="#FFC107",
+                      line=dict(width=2),
+                  ),
+              )
+          )
+          fig_beats.update_layout(
+              title="Detected Beats",
+              xaxis_title="Time (s)",
+              yaxis=dict(showticklabels=False, range=[0.5, 1.5]),
+              template="plotly_dark",
+              height=300,
+          )
+          st.plotly_chart(fig_beats, use_container_width=True)
+
+  # ==========================================
+  # TAB 7: Advanced Audio Features
+  # ==========================================
+  with tabs[6]:
+    st.header("Timbral & Spectral Features")
+
+    with st.spinner("Extracting features..."):
+      spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+      spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
+      spectral_flatness = librosa.feature.spectral_flatness(y=y)[0]
+
+      frames = range(len(spectral_centroids))
+      t_features = librosa.frames_to_time(frames, sr=sr)
+
+      col_f1, col_f2 = st.columns(2)
+
+      with col_f1:
+        st.markdown("**Spectral Centroid**")
+        fig_cent = px.line(x=t_features, y=spectral_centroids, template="plotly_dark")
+        fig_cent.update_layout(xaxis_title="Time (s)", yaxis_title="Hz")
+        st.plotly_chart(fig_cent, use_container_width=True)
+
+      with col_f2:
+        st.markdown("**Spectral Rolloff**")
+        fig_roll = px.line(
+            x=t_features,
+            y=spectral_rolloff,
+            template="plotly_dark",
+            color_discrete_sequence=["#E91E63"],
+        )
+        fig_roll.update_layout(xaxis_title="Time (s)", yaxis_title="Hz")
+        st.plotly_chart(fig_roll, use_container_width=True)
+
+      st.markdown("**Spectral Flatness (Wiener Entropy)**")
+      fig_flat = px.line(
+          x=t_features,
+          y=spectral_flatness,
+          template="plotly_dark",
+          color_discrete_sequence=["#00BCD4"],
+      )
+      fig_flat.update_layout(
+          xaxis_title="Time (s)", yaxis_title="Flatness Ratio (0 to 1)"
+      )
+      st.plotly_chart(fig_flat, use_container_width=True)
+
+    st.subheader("Mel-Frequency Cepstral Coefficients (MFCC)")
+    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+    fig_mfcc = go.Figure(
+        data=go.Heatmap(
+            z=mfccs, x=t_features, y=np.arange(1, 14), colorscale="Viridis"
+        )
+    )
+    fig_mfcc.update_layout(
+        xaxis_title="Time (s)",
+        yaxis_title="MFCC Coefficient",
+        template="plotly_dark",
+    )
+    st.plotly_chart(fig_mfcc, use_container_width=True)
+
+  # ==========================================
+  # TAB 8: Chaos Theory & Non-Linear Dynamics
+  # ==========================================
+  with tabs[7]:
+    st.header("Phase Space Trajectory (Attractor Reconstruction)")
+    
+    c_chaos1, c_chaos2 = st.columns([1, 2])
+
+    with c_chaos1:
+      st.markdown("#### Embedding Parameters")
+      tau = st.slider(
+          "Time Delay (τ) in samples", min_value=1, max_value=500, value=25, step=1
+      )
+      plot_dim = st.radio("Plot Dimension", ["2D Phase Space", "3D Phase Space"])
+      max_pts = st.slider("Samples to Plot", 1000, 20000, 5000, step=1000)
+
+    with c_chaos2:
+      with st.spinner("Reconstructing Attractor..."):
+        y_plot = y[:max_pts]
+
+        if plot_dim == "2D Phase Space":
+          y_t = y_plot[:-tau]
+          y_t_tau = y_plot[tau:]
+
+          fig_phase = go.Figure(
+              go.Scattergl(
+                  x=y_t,
+                  y=y_t_tau,
+                  mode="markers+lines",
+                  marker=dict(
+                      size=2,
+                      color=np.arange(len(y_t)),
+                      colorscale="Viridis",
+                      showscale=False,
+                  ),
+                  line=dict(color="rgba(255,255,255,0.2)", width=1),
+              )
+          )
+          fig_phase.update_layout(
+              title=f"2D Phase Space (Delay τ = {tau})",
+              xaxis_title="y(t)",
+              yaxis_title="y(t + τ)",
+              template="plotly_dark",
+              height=500,
+              width=500,
+              yaxis=dict(scaleanchor="x", scaleratio=1),
+          )
+          st.plotly_chart(fig_phase, use_container_width=True)
+
+        else:
+          if len(y_plot) > 2 * tau:
+            y_t = y_plot[: -2 * tau]
+            y_t_tau1 = y_plot[tau:-tau]
+            y_t_tau2 = y_plot[2 * tau :]
+
+            fig_phase3d = go.Figure(
+                go.Scatter3d(
+                    x=y_t,
+                    y=y_t_tau1,
+                    z=y_t_tau2,
+                    mode="lines",
+                    line=dict(
+                        color=np.arange(len(y_t)), colorscale="Plasma", width=3
+                    ),
+                )
+            )
+
+            fig_phase3d.update_layout(
+                title="3D Phase Space Strange Attractor",
+                scene=dict(
+                    xaxis_title="y(t)",
+                    yaxis_title="y(t + τ)",
+                    zaxis_title="y(t + 2τ)",
+                ),
+                template="plotly_dark",
+                height=600,
+            )
+            st.plotly_chart(fig_phase3d, use_container_width=True)
+
+  # ==========================================
+  # TAB 9: Kinematics & DSP
+  # ==========================================
+  with tabs[8]:
+    st.header("Kinematics & Digital Signal Processing (DSP)")
+
+    # --- Doppler Simulator ---
+    st.subheader("1. Wave Kinematics: Doppler Effect Simulator")
+    
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+      velocity_ms = st.slider("Source Velocity (m/s)", 5.0, 150.0, 30.0)
+    with col_d2:
+      closest_dist = st.slider("Closest Distance (meters)", 1.0, 50.0, 5.0)
+    with col_d3:
+      c_speed = st.slider("Speed of Sound (m/s)", 300.0, 1500.0, 343.0)
+
+    if st.button("Simulate Doppler Pass-by"):
+      with st.spinner("Calculating time dilations and signal attenuation..."):
+        y_doppler = apply_doppler_effect(y, sr, velocity_ms, closest_dist, c_speed)
+        st.success("Kinematic simulation complete!")
+
+        buffer_doppler = io.BytesIO()
+        sf.write(buffer_doppler, y_doppler, sr, format="WAV")
+        st.audio(buffer_doppler.getvalue(), format="audio/wav")
+
+        time_dop = np.linspace(0, len(y_doppler) / sr, len(y_doppler))
+        fig_dop = go.Figure(
+            go.Scatter(
+                x=downsample_array(time_dop, 5000),
+                y=downsample_array(y_doppler, 5000),
+                line=dict(color="#00BCD4", width=1),
+            )
+        )
+        fig_dop.update_layout(
+            title=f"Doppler Waveform",
+            xaxis_title="Time (s)",
+            yaxis_title="Pressure Amplitude",
+            template="plotly_dark",
+            height=300,
+        )
+        st.plotly_chart(fig_dop, use_container_width=True)
+
+    st.divider()
+
+    # --- Filters ---
+    st.subheader("2. IIR Butterworth Filters")
+
+    filt_type = st.selectbox(
+        "Filter Type", ["Low-Pass", "High-Pass", "Band-Pass", "Band-Stop"]
+    )
+    filt_order = st.slider("Filter Order", min_value=1, max_value=10, value=4)
+
+    cutoff1, cutoff2 = 1000.0, 3000.0
+
+    if filt_type in ["Low-Pass", "High-Pass"]:
+      default_cutoff = min(1000.0, float(nyquist - 1))
+      cutoff1 = st.slider(
+          "Cutoff Frequency (Hz)", 20.0, float(nyquist - 1), default_cutoff
+      )
+    else:
+      default_high = min(3000.0, float(nyquist - 1))
+      default_low = min(500.0, default_high - 1.0)
+      c1, c2 = st.slider(
+          "Frequency Band (Hz)",
+          20.0,
+          float(nyquist - 1),
+          (default_low, default_high),
+      )
+      cutoff1, cutoff2 = c1, c2
+
+    if st.button("Apply Filter"):
+      with st.spinner("Filtering audio..."):
+        try:
+          y_filt = apply_filter(
+              y, sr, filt_type, cutoff1, filt_order, cutoff2
+          )
+          st.success("Filter applied successfully!")
+
+          buffer = io.BytesIO()
+          sf.write(buffer, y_filt, sr, format="WAV")
+          st.audio(buffer.getvalue(), format="audio/wav")
+
+          fig_comp = go.Figure()
+          fig_comp.add_trace(go.Scatter(y=y[:1000], name="Original", opacity=0.5))
+          fig_comp.add_trace(
+              go.Scatter(y=y_filt[:1000], name="Filtered", opacity=0.8)
+          )
+          fig_comp.update_layout(template="plotly_dark")
+          st.plotly_chart(fig_comp, use_container_width=True)
+
+        except ValueError as e:
+          st.error(
+              f"Filter Error: {e}. Try adjusting your cutoff frequencies."
+          )
+
+    # --- Pole-Zero Map Visualization ---
+    show_pz = st.checkbox("Show Pole-Zero Map (Z-Plane) for this filter")
+    if show_pz:
+        with st.spinner("Calculating Poles and Zeros..."):
+            z, p = compute_filter_zpk(sr, filt_type, cutoff1, filt_order, cutoff2)
+            fig_pz = go.Figure()
+            
+            theta = np.linspace(0, 2*np.pi, 200)
+            fig_pz.add_trace(go.Scatter(x=np.cos(theta), y=np.sin(theta), mode='lines', line=dict(color='rgba(255,255,255,0.3)', dash='dash'), name='Unit Circle'))
+            fig_pz.add_trace(go.Scatter(x=np.real(z), y=np.imag(z), mode='markers', marker=dict(symbol='circle-open', size=10, color='#00BCD4', line=dict(width=2)), name='Zeros'))
+            fig_pz.add_trace(go.Scatter(x=np.real(p), y=np.imag(p), mode='markers', marker=dict(symbol='x', size=10, color='#E91E63'), name='Poles'))
+            
+            fig_pz.update_layout(
+                title="Filter Stability: Pole-Zero Map", 
+                xaxis_title="Real", 
+                yaxis_title="Imaginary", 
+                width=500, height=500, 
+                yaxis=dict(scaleanchor="x", scaleratio=1), 
+                template="plotly_dark"
+            )
+            fig_pz.update_xaxes(range=[-1.5, 1.5])
+            fig_pz.update_yaxes(range=[-1.5, 1.5])
+            st.plotly_chart(fig_pz, use_container_width=True)
+
+
+    st.divider()
+    st.subheader("3. Experimental Noise Reduction")
+
+    thresh = st.slider("Noise Threshold (dB)", -80.0, 0.0, -40.0)
+    if st.button("Apply Noise Reduction"):
+      with st.spinner("Applying Spectral Gating..."):
+        y_clean = apply_spectral_gating(y, thresh)
+        st.success("Noise reduction applied!")
+
+        buffer_nr = io.BytesIO()
+        sf.write(buffer_nr, y_clean, sr, format="WAV")
+        st.audio(buffer_nr.getvalue(), format="audio/wav")
+
+    st.divider()
+    
+    # --- Cross-Correlation (Echo/Time Delay Estimation) ---
+    st.subheader("4. Cross-Correlation (Time Delay Estimation)")
+    
+    c_delay, c_noise = st.columns(2)
+    true_delay = c_delay.slider("Simulated Echo Delay (seconds)", 0.01, 1.0, 0.25, 0.01)
+    noise_lvl = c_noise.slider("Simulation Noise Level", 0.0, 1.0, 0.1, 0.1)
+    
+    if st.button("Run Cross-Correlation Analysis"):
+        with st.spinner("Correlating signals..."):
+            lags, corr, est_delay = compute_cross_correlation(y, sr, true_delay, noise_lvl)
+            
+            st.success(f"Estimated Delay via DSP: **{est_delay:.4f} seconds** (Actual Simulated: {true_delay}s)")
+            
+            fig_xcorr = go.Figure()
+            ds_x = 5000
+            lags_plot = downsample_array(lags, ds_x)
+            corr_plot = downsample_array(corr, ds_x)
+            
+            fig_xcorr.add_trace(go.Scatter(x=lags_plot, y=corr_plot, mode='lines', line=dict(color='#FFC107', width=1), name="Cross-Correlation"))
+            fig_xcorr.add_vline(x=est_delay, line=dict(color='red', width=2, dash='dash'), annotation_text="Detected Peak")
+            fig_xcorr.update_layout(title="Cross-Correlation vs Time Lag", xaxis_title="Time Lag (s)", yaxis_title="Correlation Amplitude", template="plotly_dark")
+            st.plotly_chart(fig_xcorr, use_container_width=True)
+
+  # ==========================================
+  # TAB 10: Data Export
+  # ==========================================
+  with tabs[9]:
+    st.header("Export Analysis Data")
+
+    st.subheader("Frequency Spectrum (FFT)")
+    freqs_exp, mag_exp, mag_db_exp = compute_fft(y, sr)
+
+    freqs_plot, mag_exp_plot = downsample_fft(freqs_exp, mag_exp, 5000)
+    _, mag_db_exp_plot = downsample_fft(freqs_exp, mag_db_exp, 5000)
+
+    df_fft = pd.DataFrame({
+        "Frequency_Hz": freqs_plot,
+        "Magnitude": mag_exp_plot,
+        "Magnitude_dB": mag_db_exp_plot,
+    })
+
+    csv_fft = df_fft.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download FFT Data (CSV)", csv_fft, "fft_data.csv", "text/csv"
+    )
+
+    st.subheader("Time-Series Audio Features")
+    rms = librosa.feature.rms(y=y)[0]
+    zcr = librosa.feature.zero_crossing_rate(y)[0]
+    times = librosa.frames_to_time(range(len(rms)), sr=sr)
+
+    df_feat = pd.DataFrame(
+        {"Time_s": times, "RMS_Energy": rms, "Zero_Crossing_Rate": zcr}
+    )
+    csv_feat = df_feat.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download Audio Features (CSV)",
+        csv_feat,
+        "audio_features.csv",
+        "text/csv",
+    )
+
+    st.subheader("Mono Converted Audio")
+    buffer_mono = io.BytesIO()
+    sf.write(buffer_mono, y, sr, format="WAV")
+    st.download_button(
+        label="Download Mono WAV",
+        data=buffer_mono.getvalue(),
+        file_name="mono_converted.wav",
+        mime="audio/wav",
+    )
+
+
+if __name__ == "__main__":
+  main()
