@@ -1,7 +1,7 @@
 """
 Advanced Audio Analyzer
 A Physics-Based Audio & Signal Processing Laboratory.
-Built with Streamlit, Librosa, SciPy, PyWavelets, and Plotly.
+Built with Streamlit, Librosa, SciPy, PyWavelets, Plotly, and Audio Recorder.
 """
 
 import io
@@ -18,6 +18,12 @@ import scipy.fft
 import scipy.signal
 import soundfile as sf
 import streamlit as st
+
+# --- NEW: Live Audio Recording Library ---
+try:
+    from audio_recorder_streamlit import audio_recorder
+except ImportError:
+    audio_recorder = None
 
 # ==========================================
 # PAGE CONFIGURATION
@@ -207,7 +213,7 @@ def compute_filter_zpk(
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def compute_cross_correlation(y: np.ndarray, sr: int, delay_sec: float, noise_lvl: float) -> Tuple[np.ndarray, np.ndarray, float]:
   """Simulates an echo with noise, and uses Cross-Correlation to estimate the delay."""
-  limit = sr * 5  # Limit to 5s for fast computation
+  limit = sr * 5  
   y_sub = y[:limit] if len(y) > limit else y
   
   delay_samples = int(delay_sec * sr)
@@ -249,7 +255,7 @@ def estimate_rt60(
     np.ndarray,
     np.ndarray,
 ]:
-  """Estimates RT60 using linear regression on the energy decay curve (RT20 method)."""
+  """Estimates RT60 using linear regression on the energy decay curve."""
   rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
   times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=512)
   rms_db = librosa.amplitude_to_db(rms, ref=np.max)
@@ -319,15 +325,38 @@ def main():
     st.markdown("*Physics-Based Audio & Signal Processing Laboratory*")
     st.divider()
 
+    # --- NEW: Added 'Record Live Audio' to options ---
     audio_source = st.radio(
-        "Audio Source", ["Upload Audio File", "Generate Pure Wave"]
+        "Audio Source", ["Upload Audio File", "Record Live Audio", "Generate Pure Wave"]
     )
+
+    file_bytes = None
+    file_name = ""
+    file_ext = ""
 
     if audio_source == "Upload Audio File":
       uploaded_file = st.file_uploader(
           "Upload Audio File", type=["wav", "mp3", "flac", "ogg", "m4a"]
       )
-    else:
+      if uploaded_file is not None:
+          file_bytes = uploaded_file.read()
+          file_ext = "." + uploaded_file.name.split(".")[-1].lower()
+          file_name = uploaded_file.name
+
+    # --- NEW: Live Audio Recording Logic ---
+    elif audio_source == "Record Live Audio":
+      if audio_recorder is None:
+          st.error("Please install the required library: `pip install audio-recorder-streamlit`")
+      else:
+          st.markdown("### 🎙️ Live Recording")
+          st.info("Click the microphone icon to start/stop recording.")
+          recorded_audio = audio_recorder(text="", recording_color="#E91E63", neutral_color="#1DB954")
+          if recorded_audio:
+              file_bytes = recorded_audio
+              file_ext = ".wav"
+              file_name = "Live_Recording.wav"
+
+    elif audio_source == "Generate Pure Wave":
       st.markdown("### 🌊 Wave Generator")
       wave_type = st.selectbox(
           "Waveform Type",
@@ -350,7 +379,38 @@ def main():
       else:
         wave_amp = st.slider("Amplitude", 0.0, 1.0, 0.5)
 
-      uploaded_file = None
+      with st.spinner("Synthesizing physical wave..."):
+          # We synthesize a temporary 'y' here just to save it to bytes
+          sr_temp = 44100
+          t = np.linspace(0, wave_dur, int(sr_temp * wave_dur), endpoint=False)
+          
+          if wave_type == "Sine":
+              y_temp = wave_amp * np.sin(2 * np.pi * wave_freq * t)
+          elif wave_type == "Square":
+              y_temp = wave_amp * scipy.signal.square(2 * np.pi * wave_freq * t)
+          elif wave_type == "Sawtooth":
+              y_temp = wave_amp * scipy.signal.sawtooth(2 * np.pi * wave_freq * t)
+          elif wave_type == "Fourier Synthesis":
+              y_temp = (
+                  amp_1 * np.sin(2 * np.pi * wave_freq * t)
+                  + amp_2 * np.sin(2 * np.pi * (wave_freq * 2) * t)
+                  + amp_3 * np.sin(2 * np.pi * (wave_freq * 3) * t)
+                  + amp_4 * np.sin(2 * np.pi * (wave_freq * 4) * t)
+                  + amp_5 * np.sin(2 * np.pi * (wave_freq * 5) * t)
+              )
+              max_val = np.max(np.abs(y_temp))
+              if max_val > 1.0:
+                  y_temp = y_temp / max_val
+              elif max_val == 0.0:
+                  y_temp = np.zeros_like(y_temp)
+                  
+          file_name = f"Generated_{wave_type.replace(' ', '_')}_{wave_freq}Hz.wav"
+          file_ext = ".wav"
+          
+          buffer = io.BytesIO()
+          sf.write(buffer, y_temp, sr_temp, format="WAV")
+          file_bytes = buffer.getvalue()
+
 
     st.divider()
     st.markdown("### ⚙️ System Info")
@@ -360,65 +420,21 @@ def main():
     )
 
   # --- Main Content / Audio Loading ---
-
-  y = None
-  sr = 44100
-  file_bytes = None
-  file_name = ""
-
-  if audio_source == "Upload Audio File":
-    if uploaded_file is None:
+  
+  # --- NEW: Unified audio loading block ---
+  if file_bytes is None:
       st.info(
-          "👋 Welcome! Please upload an audio file in the sidebar or generate a"
+          "👋 Welcome! Please upload an audio file, record your voice, or generate a"
           " wave to begin analysis."
       )
       return
 
-    file_bytes = uploaded_file.read()
-    file_ext = "." + uploaded_file.name.split(".")[-1].lower()
-    file_name = uploaded_file.name
-
-    with st.spinner("Loading and decoding audio..."):
+  with st.spinner("Loading and decoding audio..."):
       y, sr, err = load_audio_file(file_bytes, file_ext)
 
-    if err or y is None:
-      st.error(f"Error loading file: {err}")
+  if err or y is None or len(y) == 0:
+      st.error(f"Error loading audio: {err if err else 'Audio is empty.'}")
       return
-
-  elif audio_source == "Generate Pure Wave":
-    with st.spinner("Synthesizing physical wave..."):
-      t = np.linspace(0, wave_dur, int(sr * wave_dur), endpoint=False)
-
-      if wave_type == "Sine":
-        y = wave_amp * np.sin(2 * np.pi * wave_freq * t)
-      elif wave_type == "Square":
-        y = wave_amp * scipy.signal.square(2 * np.pi * wave_freq * t)
-      elif wave_type == "Sawtooth":
-        y = wave_amp * scipy.signal.sawtooth(2 * np.pi * wave_freq * t)
-      elif wave_type == "Fourier Synthesis":
-        y = (
-            amp_1 * np.sin(2 * np.pi * wave_freq * t)
-            + amp_2 * np.sin(2 * np.pi * (wave_freq * 2) * t)
-            + amp_3 * np.sin(2 * np.pi * (wave_freq * 3) * t)
-            + amp_4 * np.sin(2 * np.pi * (wave_freq * 4) * t)
-            + amp_5 * np.sin(2 * np.pi * (wave_freq * 5) * t)
-        )
-
-        max_val = np.max(np.abs(y))
-        if max_val > 1.0:
-          y = y / max_val
-        elif max_val == 0.0:
-          y = np.zeros_like(y)
-
-      file_name = f"Generated_{wave_type.replace(' ', '_')}_{wave_freq}Hz.wav"
-
-      buffer = io.BytesIO()
-      sf.write(buffer, y, sr, format="WAV")
-      file_bytes = buffer.getvalue()
-
-  if len(y) == 0:
-    st.error("The audio array is empty.")
-    return
 
   duration = librosa.get_duration(y=y, sr=sr)
   nyquist = sr / 2.0
@@ -827,7 +843,7 @@ def main():
 
     with c_pitch:
       st.subheader("Pitch Estimation (YIN)")
-      st.info("Calculates fundamental frequency ($f_0$).")
+      st.info("Calculates fundamental frequency ($f_0$) and translates to a Musical Note.")
       
       if st.button("Estimate Pitch"):
         with st.spinner("Calculating pitch over the entire track (this may take time for long audio)..."):
@@ -850,7 +866,11 @@ def main():
 
           if len(valid_f0) > 0:
             median_pitch = np.median(valid_f0)
-            st.metric("Median Pitch", f"{median_pitch:.1f} Hz")
+            
+            # --- NEW: Musical Note Transcription ---
+            musical_note = librosa.hz_to_note(median_pitch)
+            
+            st.metric("Median Pitch", f"{median_pitch:.1f} Hz", f"Note: {musical_note}")
 
             fig_pitch = go.Figure()
             fig_pitch.add_trace(
