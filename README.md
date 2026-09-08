@@ -2,12 +2,13 @@
 
 A Physics-Based Audio & Signal Processing Laboratory built with Streamlit, Librosa, SciPy, PyWavelets, and Plotly.
 
-## 🚀 What's New in Version 4.0
-* **🧠 Psychoacoustics & Human Hearing:** Added A-Weighted Power Spectrum graphs and Mel-Spectrograms to analyze audio based on human auditory perception rather than just raw physical metrics.
+## 🚀 What's New in Version 5.0
+* **📐 Oscilloscope & Lissajous Figures:** Added a virtual oscilloscope to visualize Simple Harmonic Motion (SHM) intersections, frequency ratios ($f_x:f_y$), and phase shifts ($\delta$).
 
 ## ✨ Highlights from Previous Versions
-* **v3.0 (PDF Reports):** Generate comprehensive scientific PDF lab reports containing audio metadata, time-domain, and frequency-domain metrics.
-* **v2.0 (Live Audio & Pitch):** Directly record audio from your browser and dynamically translate fundamental frequencies (Hz) into exact musical notes (e.g., C4, G#).
+* **v4.0 (Psychoacoustics):** A-Weighted Power Spectra and Mel-Spectrograms mirroring human auditory perception.
+* **v3.0 (PDF Reports):** One-click automated scientific PDF lab reports.
+* **v2.0 (Live Audio & Pitch):** Browser-based microphone recording and fundamental frequency to musical note translation.
 
 ## 🔬 Core Features
 
@@ -17,11 +18,12 @@ A Physics-Based Audio & Signal Processing Laboratory built with Streamlit, Libro
 ### 2. Signal Processing & Acoustics
 * **Time Domain:** Interactive waveforms, Hilbert Transform (Amplitude Envelope).
 * **Frequency Domain:** FFT Spectrum, Welch's PSD, and Total Harmonic Distortion (THD).
-* **Acoustics & Psychoacoustics:** Estimate RT60 (Reverberation Time), A-Weighting loudness comparison, and Mel-Spectrograms.
+* **Acoustics & Psychoacoustics:** RT60 (Reverberation Time) estimation, A-Weighting perceptual loudness, and Mel-Spectrograms.
 
 ### 3. Advanced Visualization & Dynamics
 * 2D Spectrograms, 3D Cumulative Spectral Decay (Waterfall), and Continuous Wavelet Transform (CWT) scalograms.
 * **Chaos Theory:** Reconstruct 2D and 3D Phase Space Attractors (Strange Attractors) from audio signals.
+* **Physics Oscilloscope:** Lissajous curves via orthogonal SHM superposition.
 
 ### 4. DSP & Physics Simulators
 * **Wave Kinematics:** Simulate the Doppler effect and amplitude drop-off.
@@ -29,4 +31,3 @@ A Physics-Based Audio & Signal Processing Laboratory built with Streamlit, Libro
 
 ### 5. Data Export
 * Download processed audio (WAV), raw CSV data (FFT, Features), or a fully automated PDF Lab Report.
-
