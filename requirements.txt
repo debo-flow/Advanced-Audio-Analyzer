@@ -7,3 +7,4 @@ PyWavelets
 scipy
 soundfile
 audio-recorder-streamlit
+fpdf
