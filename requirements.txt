@@ -6,3 +6,4 @@ plotly
 PyWavelets
 scipy
 soundfile
+audio-recorder-streamlit
