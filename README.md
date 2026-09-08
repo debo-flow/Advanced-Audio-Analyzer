@@ -1,73 +1,36 @@
-# Advanced Audio Analyzer
+# 🎧 Advanced Audio Analyzer
 
-A comprehensive, physics-based audio and digital signal processing (DSP) laboratory built with Python and Streamlit.
+A Physics-Based Audio & Signal Processing Laboratory built with Streamlit, Librosa, SciPy, PyWavelets, and Plotly.
 
-This interactive web application allows users to upload audio files or generate pure waveforms to perform deep acoustical analysis and visualizations.
+## 🚀 What's New in Version 3.0
+* **📄 Automated PDF Lab Reports:** Generate comprehensive scientific PDF reports containing audio metadata, time-domain metrics (RMS, ZCR, RT60), and frequency-domain metrics (Dominant Frequency, THD) with a single click.
 
-## Features
+## ✨ Highlights from Version 2.0
+* **🎙️ Live Audio Recording:** Directly record your voice or ambient sounds from your browser.
+* **🎵 Musical Note Transcription:** Dynamically translates fundamental frequencies (Hz) into exact musical notes (e.g., C4, G#).
 
-- **Audio Management:** Upload standard audio files (WAV, MP3, FLAC) or synthesize pure waves (Sine, Square, Sawtooth, Fourier).
-- **Time-Domain Analysis:** Interactive waveforms, Hilbert Transform, and RT60 Reverb Time estimation.
-- **Frequency Domain (FFT):** Power spectrum analysis, Total Harmonic Distortion (THD) calculation, and Welch's Power Spectral Density.
-- **Spectrogram & 3D Waterfall:** Short-Time Fourier Transform (STFT) with 2D heatmap and 3D cumulative spectral decay visualizations.
-- **Wavelet Transform (CWT):** High-resolution Continuous Wavelet Transform scalograms.
-- **Pitch & Rhythm:** YIN-based pitch estimation and dynamic beat/tempo tracking.
-- **Advanced Features:** Spectral Centroid, Rolloff, Flatness, and MFCC extraction.
-- **Chaos Dynamics:** 2D and 3D Phase Space Trajectory reconstruction.
-- **Kinematics & DSP:** Doppler Effect Simulator, IIR Butterworth Digital Filters, Spectral Gating, and Cross-Correlation.
-- **Data Export:** Download processed audio (Mono WAV) and extracted tabular data (CSV).
+## 🔬 Core Features
 
-## Technologies Used
+### 1. Audio Sources & Generation
+* Upload standard audio files (WAV, MP3, FLAC, OGG, M4A) or record live audio.
+* Generate pure physical waveforms (Sine, Square, Sawtooth) and custom complex waves using Fourier Synthesis.
 
-- **Frontend/UI:** Streamlit
-- **Audio Processing:** Librosa, SoundFile
-- **Signal Processing (DSP):** SciPy, NumPy, PyWavelets
-- **Data Visualization:** Plotly
-- **Data Management:** Pandas
+### 2. Signal Processing & Analysis
+* **Time Domain:** Interactive waveforms and Hilbert Transform for Amplitude Envelope extraction.
+* **Frequency Domain:** FFT Spectrum with Total Harmonic Distortion (THD) calculation and Welch's Power Spectral Density (PSD).
+* **Acoustics:** Estimate RT60 (Reverberation Time) using energy decay extrapolation.
 
-## How to Run Locally
+### 3. Advanced Visualization
+* 2D Spectrogram Heatmaps and 3D Cumulative Spectral Decay (Waterfall) plots.
+* Continuous Wavelet Transform (CWT) power scalograms using Morlet, Mexican Hat, and Complex Morlet wavelets.
 
-Follow these steps to set up and run the application on your own machine.
+### 4. DSP & Physics Simulators
+* **Wave Kinematics:** Simulate the Doppler effect and amplitude drop-off based on source velocity and distance.
+* **Chaos Theory:** Reconstruct 2D and 3D Phase Space Attractors (Strange Attractors) from audio signals.
+* **Filters:** Apply customizable IIR Butterworth filters (Low-Pass, High-Pass, Band-Pass, Band-Stop) and visualize Pole-Zero (Z-Plane) stability maps.
+* **Time Delay:** Estimate simulated echo delays using Cross-Correlation and basic spectral gating noise reduction.
 
-### 1. Clone the repository
+### 5. Data Export
+* Export FFT spectrum and time-series audio features (RMS, Zero-Crossing Rate) as CSV files.
+* Download processed/filtered audio as WAV files or generate a full PDF Lab Report.
 
-`git clone https://github.com/debo-flow/Advanced-Audio-Analyzer.git`
-
-### 2. Open the folder
-
-`cd Advanced-Audio-Analyzer`
-
-### 3. Create a Virtual Environment
-
-`python -m venv .venv`
-
-### 4. Activate the Virtual Environment
-
-Windows:
-
-`.venv\Scripts\activate`
-
-macOS/Linux:
-
-`source .venv/bin/activate`
-
-### 5. Install Dependencies
-
-`pip install -r requirements.txt`
-
-### 6. Run the Application
-
-`streamlit run app.py`
-
-## Project Structure
-
-- `app.py` — Main application
-- `requirements.txt` — Required Python packages
-- `README.md` — Project documentation
-- `.gitignore` — Ignored files
-
-## Author
-
-**Deborudra De**
-
-⭐ If you find this project interesting, consider giving it a star!
