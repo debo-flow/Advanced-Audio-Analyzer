@@ -8,3 +8,5 @@ scipy
 soundfile
 audio-recorder-streamlit
 fpdf
+streamlit-webrtc
+av
