@@ -20,6 +20,10 @@ import scipy.signal
 import soundfile as sf
 import streamlit as st
 
+# --- NEW: Live Streaming Library ---
+import av
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
+
 # --- NEW: Live Audio Recording Library ---
 try:
     from audio_recorder_streamlit import audio_recorder
@@ -395,8 +399,9 @@ def main():
     st.markdown("*Physics-Based Audio & Signal Processing Laboratory*")
     st.divider()
 
+    # --- UPDATED: Added WebRTC option ---
     audio_source = st.radio(
-        "Audio Source", ["Upload Audio File", "Record Live Audio", "Generate Pure Wave"]
+        "Audio Source", ["Upload Audio File", "Record Live Audio", "Generate Pure Wave", "Real-Time WebRTC"]
     )
 
     file_bytes = None
@@ -488,6 +493,24 @@ def main():
 
   # --- Main Content / Audio Loading ---
   
+  # --- UPDATED: Handle WebRTC Connection Before File Upload Check ---
+  if audio_source == "Real-Time WebRTC":
+      st.title("🔴 Live Real-Time Audio Streaming")
+      st.write("Turn on your microphone to stream directly to the server in real-time.")
+      
+      # WebRTC Audio Streamer
+      webrtc_ctx = webrtc_streamer(
+          key="live-audio-analyzer",
+          mode=WebRtcMode.SENDONLY,
+          media_stream_constraints={"audio": True, "video": False},
+      )
+      
+      if webrtc_ctx and webrtc_ctx.state.playing:
+          st.success("🎙️ Microphone is LIVE! (Streaming active)")
+          st.info("Connection established. We are ready to add live graphs here next!")
+      
+      return # Stops here for WebRTC mode so it doesn't crash looking for static files
+  
   if file_bytes is None:
       st.info(
           "👋 Welcome! Please upload an audio file, record your voice, or generate a"
@@ -507,7 +530,6 @@ def main():
   num_samples = len(y)
 
   # --- Application Tabs ---
-  # --- NEW: Added Lissajous / SHM Tab (12 tabs total now) ---
   tabs = st.tabs([
       "📁 Audio",
       "🌊 Waveform",
