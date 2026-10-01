@@ -83,6 +83,6 @@ Follow these steps to set up and run the application on your own machine (PC, Ma
 ---
 
 👨‍💻 Author
-​Deborudra De
+ ​Deborudra De 
 ​Built and engineered directly from a mobile development environment. 📱⚛️🛡️
 ​⭐ If you find this project interesting or helpful, consider giving it a star!
