@@ -1461,13 +1461,14 @@ def main():
   # NEW TAB 11: Lissajous & Simple Harmonic Motion (Version 5.0)
   # ==========================================
   with tabs[10]:
-    st.header("Oscilloscope: Lissajous Figures & Simple Harmonic Motion")
-    st.markdown("Visualizes the complex harmonic motion created by plotting two orthogonal sine waves (X and Y axes) against each other.")
+    st.header("Oscilloscope: Lissajous Figures & Damped Harmonic Motion")
+    st.markdown("Visualizes the complex harmonic motion created by plotting two orthogonal sine waves (X and Y axes) against each other, now featuring **Exponential Damping** (Friction).")
     
-    col_l1, col_l2, col_l3 = st.columns(3)
+    col_l1, col_l2, col_l3, col_l4 = st.columns(4)
     freq_x = col_l1.slider("X-Axis Frequency ($f_x$) in Hz", 1.0, 1000.0, 440.0, 1.0)
     freq_y = col_l2.slider("Y-Axis Frequency ($f_y$) in Hz", 1.0, 1000.0, 440.0, 1.0)
-    phase_delta = col_l3.slider("Phase Difference ($\delta$) in Degrees", 0, 360, 90)
+    phase_delta = col_l3.slider("Phase Difference ($\delta$)", 0, 360, 90)
+    damping = col_l4.slider("Damping Friction ($\gamma$)", 0.0, 2.0, 0.0, 0.1)
 
     with st.spinner("Generating Lissajous Curve..."):
         # Determine appropriate time range to show full patterns
@@ -1475,8 +1476,13 @@ def main():
         t_lin = np.linspace(0, t_end, 5000)
 
         phase_rad = np.deg2rad(phase_delta)
-        x_sig = np.sin(2 * np.pi * freq_x * t_lin + phase_rad)
-        y_sig = np.sin(2 * np.pi * freq_y * t_lin)
+        
+        # Exponential Decay Envelope (Normalized time for consistent visual decay)
+        decay_time = np.linspace(0, 5, 5000)
+        decay = np.exp(-damping * decay_time)
+
+        x_sig = decay * np.sin(2 * np.pi * freq_x * t_lin + phase_rad)
+        y_sig = decay * np.sin(2 * np.pi * freq_y * t_lin)
 
         fig_liss = go.Figure(go.Scattergl(
             x=x_sig, y=y_sig, 
@@ -1485,7 +1491,7 @@ def main():
         ))
         
         fig_liss.update_layout(
-            title=f"Lissajous Curve (Ratio {freq_x}:{freq_y})",
+            title=f"Lissajous Curve (Ratio {freq_x}:{freq_y}) | Damping: {damping}",
             xaxis_title="Amplitude (X-Axis)",
             yaxis_title="Amplitude (Y-Axis)",
             template="plotly_dark",
@@ -1502,14 +1508,14 @@ def main():
             st.info("💡 **Physics Insight:**")
             st.markdown(
                 """
-                A Lissajous figure is produced by the intersection of two Simple Harmonic Motions (SHM) at right angles:
+                A Lissajous figure is produced by the intersection of two Simple Harmonic Motions (SHM) at right angles. With damping, energy is lost over time:
                 
-                $x(t) = A \sin(2\pi f_x t + \delta)$
-                $y(t) = B \sin(2\pi f_y t)$
+                $x(t) = A e^{-\gamma t} \sin(2\pi f_x t + \delta)$
                 
-                * **1:1 Ratio (440Hz : 440Hz):** Creates circles or lines depending on the phase. Try a $90^\circ$ phase shift!
-                * **1:2 Ratio (e.g., 440Hz : 880Hz):** Creates a figure-eight pattern.
-                * **Complex Ratios:** Create mesmerizing 3D-like rotating knots.
+                $y(t) = B e^{-\gamma t} \sin(2\pi f_y t)$
+                
+                * **Damping ($\gamma = 0$):** Perfect SHM, eternal oscillation. Creates static circles or figures-of-eight.
+                * **Damping ($\gamma > 0$):** Simulates real-world friction/air resistance. The trajectory spirals inward as kinetic energy decays exponentially!
                 """
             )
             
