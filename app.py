@@ -1203,16 +1203,46 @@ def main():
   with tabs[8]:
     st.header("Kinematics & Digital Signal Processing (DSP)")
 
-    # --- Doppler Simulator ---
-    st.subheader("1. Wave Kinematics: Doppler Effect Simulator")
+    # --- 1. Thermodynamics & Speed of Sound ---
+    st.subheader("1. Thermodynamics & Medium Kinetics")
+    st.markdown("The speed of sound ($c$) is not constant. It depends heavily on the medium's density, elasticity, and in gases, the absolute temperature.")
     
-    col_d1, col_d2, col_d3 = st.columns(3)
+    col_therm1, col_therm2, col_therm3 = st.columns(3)
+    medium = col_therm1.selectbox("Acoustic Medium", ["Air (Ideal Gas)", "Water (Liquid)", "Seawater", "Steel (Solid)", "Helium (Gas)"])
+    
+    if medium == "Air (Ideal Gas)":
+        temp_c = col_therm2.slider("Temperature (°C)", -50.0, 100.0, 20.0, 0.5)
+        # Thermodynamic speed of sound formula
+        c_speed = 331.3 * np.sqrt(1 + temp_c / 273.15)
+        col_therm3.success(f"**Speed of Sound ($c$):** {c_speed:.2f} m/s")
+        st.caption(f"💡 Calculated using the thermodynamic formula for air: $c = 331.3 \sqrt{{1 + \\frac{{T}}{{273.15}}}}$")
+    elif medium == "Water (Liquid)":
+        c_speed = 1480.0
+        col_therm2.success(f"**Speed of Sound ($c$):** {c_speed:.2f} m/s")
+        st.caption("💡 Sound travels roughly 4.3 times faster in water than in air.")
+    elif medium == "Seawater":
+        c_speed = 1530.0
+        col_therm2.success(f"**Speed of Sound ($c$):** {c_speed:.2f} m/s")
+    elif medium == "Steel (Solid)":
+        c_speed = 5100.0
+        col_therm2.success(f"**Speed of Sound ($c$):** {c_speed:.2f} m/s")
+        st.caption("💡 In highly elastic solids like steel, sound travels extremely fast.")
+    else: # Helium
+        c_speed = 972.0
+        col_therm2.success(f"**Speed of Sound ($c$):** {c_speed:.2f} m/s")
+        st.caption("💡 Helium is much less dense than air, so sound travels almost 3 times faster (which is why inhaling it makes your voice squeaky!).")
+
+    st.divider()
+
+    # --- 2. Doppler Simulator ---
+    st.subheader("2. Wave Kinematics: Doppler Effect Simulator")
+    st.markdown(f"Uses the calculated speed of sound (**{c_speed:.2f} m/s**) to simulate frequency shifts and distance attenuation.")
+    
+    col_d1, col_d2 = st.columns(2)
     with col_d1:
       velocity_ms = st.slider("Source Velocity (m/s)", 5.0, 150.0, 30.0)
     with col_d2:
       closest_dist = st.slider("Closest Distance (meters)", 1.0, 50.0, 5.0)
-    with col_d3:
-      c_speed = st.slider("Speed of Sound (m/s)", 300.0, 1500.0, 343.0)
 
     if st.button("Simulate Doppler Pass-by"):
       with st.spinner("Calculating time dilations and signal attenuation..."):
@@ -1232,7 +1262,7 @@ def main():
             )
         )
         fig_dop.update_layout(
-            title=f"Doppler Waveform",
+            title=f"Doppler Waveform (v = {velocity_ms} m/s)",
             xaxis_title="Time (s)",
             yaxis_title="Pressure Amplitude",
             template="plotly_dark",
@@ -1242,8 +1272,8 @@ def main():
 
     st.divider()
 
-    # --- Filters ---
-    st.subheader("2. IIR Butterworth Filters")
+    # --- 3. Filters ---
+    st.subheader("3. IIR Butterworth Filters")
 
     filt_type = st.selectbox(
         "Filter Type", ["Low-Pass", "High-Pass", "Band-Pass", "Band-Stop"]
@@ -1318,7 +1348,7 @@ def main():
             st.plotly_chart(fig_pz, use_container_width=True)
 
     st.divider()
-    st.subheader("3. Experimental Noise Reduction")
+    st.subheader("4. Experimental Noise Reduction")
 
     thresh = st.slider("Noise Threshold (dB)", -80.0, 0.0, -40.0)
     if st.button("Apply Noise Reduction"):
@@ -1333,17 +1363,22 @@ def main():
     st.divider()
     
     # --- Cross-Correlation (Echo/Time Delay Estimation) ---
-    st.subheader("4. Cross-Correlation (Time Delay Estimation)")
+    st.subheader("5. Echolocation & SONAR (Cross-Correlation)")
+    st.markdown(f"Uses Cross-Correlation to find the echo delay, then calculates the object's distance using the medium's sound speed (**{c_speed:.2f} m/s**).")
     
     c_delay, c_noise = st.columns(2)
     true_delay = c_delay.slider("Simulated Echo Delay (seconds)", 0.01, 1.0, 0.25, 0.01)
     noise_lvl = c_noise.slider("Simulation Noise Level", 0.0, 1.0, 0.1, 0.1)
     
-    if st.button("Run Cross-Correlation Analysis"):
-        with st.spinner("Correlating signals..."):
+    if st.button("Run Echolocation Radar"):
+        with st.spinner("Correlating signals and calculating distance..."):
             lags, corr, est_delay = compute_cross_correlation(y, sr, true_delay, noise_lvl)
             
-            st.success(f"Estimated Delay via DSP: **{est_delay:.4f} seconds** (Actual Simulated: {true_delay}s)")
+            # Physics Math: Distance = (Time * Speed) / 2
+            est_distance = (est_delay * c_speed) / 2.0
+            
+            st.success(f"⏱️ **Detected Echo Delay:** {est_delay:.4f} seconds")
+            st.info(f"📏 **Calculated Object Distance:** {est_distance:.2f} meters (using $d = \\frac{{t \\times c}}{{2}}$)")
             
             fig_xcorr = go.Figure()
             ds_x = 5000
@@ -1352,7 +1387,7 @@ def main():
             
             fig_xcorr.add_trace(go.Scatter(x=lags_plot, y=corr_plot, mode='lines', line=dict(color='#FFC107', width=1), name="Cross-Correlation"))
             fig_xcorr.add_vline(x=est_delay, line=dict(color='red', width=2, dash='dash'), annotation_text="Detected Peak")
-            fig_xcorr.update_layout(title="Cross-Correlation vs Time Lag", xaxis_title="Time Lag (s)", yaxis_title="Correlation Amplitude", template="plotly_dark")
+            fig_xcorr.update_layout(title="Radar Cross-Correlation vs Time Lag", xaxis_title="Time Lag (s)", yaxis_title="Correlation Amplitude", template="plotly_dark")
             st.plotly_chart(fig_xcorr, use_container_width=True)
 
   # ==========================================
