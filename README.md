@@ -10,14 +10,14 @@ A comprehensive, physics-based audio and digital signal processing (DSP) laborat
 
 ---
 
-### 🚀 What's New in Version 6.0 (Live Stream Update)
-* **Real-Time WebRTC Integration:** Added continuous live microphone streaming directly to the server using `streamlit-webrtc` and `av`. No more clicking "record and stop"—the app now captures audio frames instantly, laying the foundation for a true real-time physics laboratory!
+### 🚀 What's New in Version 7.0 (Wave Interference Update)
+* **Acoustic Beats Simulator:** Added a wave superposition engine to the Oscilloscope tab. Users can now mix two frequencies to hear and visualize the pulsating "beats" caused by constructive and destructive interference, perfectly demonstrating the physical math behind beat frequencies ($f_{beat} = \vert{}f_1 - f_2\vert{}$).
 
 ### ✨ Highlights from Previous Versions
-* **v5.0 (Oscilloscope):** Added a virtual oscilloscope to visualize Simple Harmonic Motion (SHM) intersections, frequency ratios, and phase shifts via Lissajous curves.
+* **v6.0 (Live Stream):** Real-Time WebRTC integration for continuous live microphone streaming and interactive oscilloscopes.
+* **v5.0 (Oscilloscope):** Visualized Simple Harmonic Motion (SHM) intersections and phase shifts via Lissajous curves.
 * **v4.0 (Psychoacoustics):** A-Weighted Power Spectra and Mel-Spectrograms mirroring human auditory perception.
 * **v3.0 (PDF Reports):** One-click automated scientific PDF lab reports.
-* **v2.0 (Pitch Tracking):** YIN-based fundamental frequency to musical note translation.
 
 ---
 
@@ -25,7 +25,7 @@ A comprehensive, physics-based audio and digital signal processing (DSP) laborat
 
 ### 1. Audio Sources & Generation
 * Upload standard audio files (WAV, MP3, FLAC), record live audio, or generate pure physical waveforms (Sine, Square, Sawtooth, Fourier Synthesis).
-* **[NEW]** Real-Time Live Streaming via WebRTC.
+* Real-Time Live Streaming via WebRTC.
 
 ### 2. Signal Processing & Acoustics
 * **Time Domain:** Interactive waveforms, Hilbert Transform (Amplitude Envelope), and Instantaneous Frequency.
@@ -38,6 +38,7 @@ A comprehensive, physics-based audio and digital signal processing (DSP) laborat
 * **Oscilloscope:** Lissajous curves via orthogonal SHM superposition.
 
 ### 4. Physics Simulators
+* **Wave Interference:** Acoustic Beats simulator demonstrating constructive and destructive wave superposition.
 * **Wave Kinematics:** Simulate the Doppler effect and inverse square law amplitude drop-off.
 * **Filters & Echo:** Customizable IIR Butterworth filters with Pole-Zero (Z-Plane) stability maps, Cross-Correlation for echo delay estimation, and Spectral Gating noise reduction.
 
@@ -82,7 +83,10 @@ Follow these steps to set up and run the application on your own machine (PC, Ma
 
 ---
 
-👨‍💻 Author
- ​Deborudra De 
-​Built and engineered directly from a mobile development environment. 📱⚛️🛡️
-​⭐ If you find this project interesting or helpful, consider giving it a star!
+## 👨‍💻 Author
+
+**Deborudra De**
+
+*Built and engineered directly from a mobile development environment.* 📱⚛️🛡️
+
+⭐ If you find this project interesting or helpful, consider giving it a star!
