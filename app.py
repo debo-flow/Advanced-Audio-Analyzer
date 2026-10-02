@@ -8,6 +8,7 @@ import io
 import os
 import tempfile
 import warnings
+import queue
 from typing import Optional, Tuple
 import librosa
 import numpy as np
@@ -22,7 +23,7 @@ import streamlit as st
 
 # --- NEW: Live Streaming Library ---
 import av
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
 
 # --- NEW: Live Audio Recording Library ---
 try:
@@ -493,23 +494,67 @@ def main():
 
   # --- Main Content / Audio Loading ---
   
-  # --- UPDATED: Handle WebRTC Connection Before File Upload Check ---
+  # --- UPDATED: Live Animation Graph for WebRTC ---
   if audio_source == "Real-Time WebRTC":
       st.title("🔴 Live Real-Time Audio Streaming")
-      st.write("Turn on your microphone to stream directly to the server in real-time.")
+      st.write("Speak into your microphone. The audio frames are streaming to the server in real-time.")
       
-      # WebRTC Audio Streamer
+      # Class to process audio frames instantly
+      class AudioViewer(AudioProcessorBase):
+          def __init__(self):
+              self.audio_queue = queue.Queue(maxsize=10) # Store latest frames
+              
+          def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+              # Convert sound format to numpy array
+              audio_data = frame.to_ndarray()
+              if not self.audio_queue.full():
+                  self.audio_queue.put(audio_data[0, :]) # Take channel 0 (Mono)
+              return frame
+
+      # Start connection
       webrtc_ctx = webrtc_streamer(
           key="live-audio-analyzer",
           mode=WebRtcMode.SENDONLY,
+          audio_processor_factory=AudioViewer,
           media_stream_constraints={"audio": True, "video": False},
       )
       
+      # Show live graph if playing
       if webrtc_ctx and webrtc_ctx.state.playing:
           st.success("🎙️ Microphone is LIVE! (Streaming active)")
-          st.info("Connection established. We are ready to add live graphs here next!")
+          st.markdown("### 🌊 Live Oscilloscope (Waveform)")
+          
+          plot_spot = st.empty() # Create an empty container for the animation
+          
+          # Infinite loop to update the graph frame by frame
+          while True:
+              if webrtc_ctx.audio_processor:
+                  try:
+                      # Grab the latest chunk of audio
+                      audio_chunk = webrtc_ctx.audio_processor.audio_queue.get(timeout=1.0)
+                      
+                      # Downsample slightly so browser doesn't freeze
+                      plot_chunk = audio_chunk[::5] 
+                      
+                      # Draw the Graph
+                      fig = go.Figure(go.Scatter(y=plot_chunk, mode='lines', line=dict(color='#1DB954', width=2)))
+                      fig.update_layout(
+                          margin=dict(l=20, r=20, t=20, b=20),
+                          height=350,
+                          yaxis=dict(range=[-32768, 32768], fixedrange=True, title="Amplitude (Int16)"),
+                          xaxis=dict(showgrid=False, visible=False, fixedrange=True),
+                          template="plotly_dark",
+                          plot_bgcolor="rgba(0,0,0,0)",
+                          paper_bgcolor="rgba(0,0,0,0)"
+                      )
+                      
+                      # Overwrite the empty container with the new graph
+                      plot_spot.plotly_chart(fig, use_container_width=True)
+                      
+                  except queue.Empty:
+                      pass
       
-      return # Stops here for WebRTC mode so it doesn't crash looking for static files
+      return # Stop execution here so it doesn't look for uploaded files
   
   if file_bytes is None:
       st.info(
@@ -1432,6 +1477,54 @@ def main():
                 * **Complex Ratios:** Create mesmerizing 3D-like rotating knots.
                 """
             )
+            
+    st.divider()
+    st.subheader("Wave Interference: Acoustic Beats Simulator")
+    st.markdown("When two sound waves of slightly different frequencies interfere, they produce a pulsating sound where the volume periodically increases and decreases. This physical phenomenon is known as a **Beat**.")
+    
+    col_b1, col_b2, col_b3 = st.columns(3)
+    f1 = col_b1.slider("Frequency 1 ($f_1$) Hz", 200.0, 1000.0, 440.0, 1.0)
+    f2 = col_b2.slider("Frequency 2 ($f_2$) Hz", 200.0, 1000.0, 444.0, 1.0)
+    beat_duration = col_b3.slider("Simulation Duration (s)", 1.0, 5.0, 3.0, 0.5)
+    
+    if st.button("Simulate Acoustic Beats"):
+        with st.spinner("Calculating wave superposition..."):
+            sr_beat = 44100
+            t_beat = np.linspace(0, beat_duration, int(sr_beat * beat_duration), endpoint=False)
+            
+            # Superposition of two waves
+            y1 = 0.5 * np.sin(2 * np.pi * f1 * t_beat)
+            y2 = 0.5 * np.sin(2 * np.pi * f2 * t_beat)
+            y_beat = y1 + y2
+            
+            # Audio playback
+            buffer_beat = io.BytesIO()
+            sf.write(buffer_beat, y_beat, sr_beat, format="WAV")
+            st.audio(buffer_beat.getvalue(), format="audio/wav")
+            
+            # Calculate and display Beat Frequency
+            beat_freq = abs(f1 - f2)
+            st.success(f"**Beat Frequency ($f_{{beat}}$):** {beat_freq:.1f} Hz (You should hear exactly {beat_freq:.1f} volume pulses per second)")
+            
+            # Plotly Graph - Zoomed in to show the beat envelope clearly
+            plot_limit = min(len(t_beat), int(sr_beat * (4.0 / beat_freq if beat_freq > 0 else 0.1))) 
+            
+            fig_beat = go.Figure()
+            fig_beat.add_trace(go.Scatter(
+                x=t_beat[:plot_limit:5], 
+                y=y_beat[:plot_limit:5], 
+                mode='lines', 
+                line=dict(color='#00BCD4', width=1)
+            ))
+            fig_beat.update_layout(
+                title=f"Superposition Envelope (Interference of {f1} Hz & {f2} Hz)",
+                xaxis_title="Time (s)",
+                yaxis_title="Pressure Amplitude",
+                template="plotly_dark",
+                height=350,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_beat, use_container_width=True)
 
   # ==========================================
   # TAB 12: Data Export & PDF Report
