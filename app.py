@@ -590,7 +590,8 @@ def main():
       "📐 Oscilloscope & SHM",
       "🧩 3D Fourier Series",
       "📡 Wave Modulation",
-      "🔲 Chladni Resonance", # NEW VERSION 12 TAB
+      "🔲 Chladni Resonance",
+      "🎧 Active Noise Cancellation", # NEW VERSION 13 TAB
       "📊 Data Export",
   ])
 
@@ -1729,7 +1730,7 @@ def main():
                 st.warning("⚠️ **Overmodulation Detected:** The Modulation Index ($m$) is greater than 1. Notice how the envelope crosses the zero line, causing phase reversal and signal distortion. In real-world radios, this causes severe noise!")
 
   # ==========================================
-  # NEW TAB 14: Chladni Plate Resonance (Version 12.0)
+  # TAB 14: Chladni Plate Resonance 
   # ==========================================
   with tabs[13]:
     st.header("Chladni Plate Resonance (2D Standing Waves)")
@@ -1786,9 +1787,90 @@ def main():
             st.info("💡 **Physics Insight:** The bright copper/golden lines represent the **Nodal Lines** ($z = 0$). If you sprinkled sand on a real square metal plate and vibrated it at this specific frequency, the sand would bounce away from the vibrating antinodes and settle exactly on these bright static lines!")
 
   # ==========================================
-  # TAB 15: Data Export & PDF Report
+  # NEW TAB 15: Active Noise Cancellation (ANC) (Version 13.0)
   # ==========================================
   with tabs[14]:
+    st.header("Active Noise Cancellation (ANC) Simulator")
+    st.markdown("ANC works on the principle of **Destructive Interference** (Phase Inversion). By generating an 'anti-noise' wave that is exactly $180^\circ$ out of phase with the original sound, the two waves mathematically add up to zero, creating silence.")
+
+    st.info("🎙️ **Real Voice Test:** This simulator uses your uploaded or recorded audio! Tweak the phase and amplitude to see how perfectly you can cancel your own voice.")
+
+    col_anc1, col_anc2, col_anc3 = st.columns(3)
+    phase_shift = col_anc1.slider("Phase Shift (Degrees)", 0, 180, 180, 1)
+    amp_match = col_anc2.slider("Anti-Noise Amplitude Match (%)", 0, 100, 100, 1)
+    delay_ms = col_anc3.slider("DSP Latency Delay (ms)", 0.0, 5.0, 0.0, 0.1)
+
+    if st.button("Simulate ANC on Real Audio"):
+        with st.spinner("Generating Anti-Noise and calculating superposition..."):
+            # 1. Create Anti-Noise
+            # Amplitude matching
+            anti_noise = y * (amp_match / 100.0)
+            
+            # Phase shifting logic
+            if phase_shift == 180:
+                anti_noise = -anti_noise
+            elif phase_shift == 0:
+                pass # No phase shift
+            else:
+                # Use Hilbert transform for exact broadband phase shifting
+                analytic_sig = scipy.signal.hilbert(anti_noise)
+                anti_noise = np.real(analytic_sig * np.exp(1j * np.deg2rad(phase_shift)))
+
+            # Latency (Time delay constraint in real DSP chips)
+            if delay_ms > 0:
+                delay_samples = int((delay_ms / 1000.0) * sr)
+                anti_noise = np.pad(anti_noise, (delay_samples, 0), mode='constant')[:len(anti_noise)]
+
+            # Resultant Superposition
+            resultant = y + anti_noise
+
+            # Calculate Reduction in dB
+            rms_orig = np.sqrt(np.mean(y**2))
+            rms_res = np.sqrt(np.mean(resultant**2))
+            if rms_res > 0 and rms_orig > 0:
+                reduction_db = 20 * np.log10(rms_res / rms_orig)
+            else:
+                reduction_db = -100.0 if rms_res == 0 else 0.0
+
+            # UI Feedback
+            if reduction_db < -3:
+                st.success(f"📉 **Noise Reduction Achieved:** {abs(reduction_db):.1f} dB")
+            elif reduction_db > 3:
+                st.error(f"⚠️ **Noise Increased (Constructive Interference):** {reduction_db:.1f} dB")
+            else:
+                st.warning(f"⚖️ **Little to No Cancellation:** {reduction_db:.1f} dB")
+
+            # PLOTLY GRAPH (Downsampled for UI)
+            plot_samples = min(len(y), int(sr * 0.05)) # Show 50ms snippet to see wave alignment
+            t_plot = np.linspace(0, plot_samples/sr, plot_samples)
+            
+            fig_anc = go.Figure()
+            fig_anc.add_trace(go.Scatter(x=t_plot, y=y[:plot_samples], mode='lines', line=dict(color='#00BCD4', width=2), name="Original Audio"))
+            fig_anc.add_trace(go.Scatter(x=t_plot, y=anti_noise[:plot_samples], mode='lines', line=dict(color='#E91E63', width=2, dash='dash'), name="Anti-Noise (Generated)"))
+            fig_anc.add_trace(go.Scatter(x=t_plot, y=resultant[:plot_samples], mode='lines', line=dict(color='#1DB954', width=3), name="Resultant Output (User hears)"))
+            
+            fig_anc.update_layout(
+                title="Real-Time Active Noise Cancellation Waveforms (50ms snippet)",
+                xaxis_title="Time (s)",
+                yaxis_title="Amplitude",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_anc, use_container_width=True)
+
+            # AUDIO PLAYBACK
+            buffer_anc = io.BytesIO()
+            sf.write(buffer_anc, resultant, sr, format="WAV")
+            st.markdown("### 🎧 Listen to the ANC Output")
+            st.audio(buffer_anc.getvalue(), format="audio/wav")
+
+            st.info("💡 **Engineering Note:** In perfect theoretical conditions ($180^\circ$ phase, 100% amplitude match, 0ms delay), the audio cancels out to complete silence. Notice how even a 0.5ms delay (DSP Processing Latency) drastically ruins the cancellation, especially for high frequencies. This is why real ANC headphones need extremely fast microchips!")
+
+  # ==========================================
+  # TAB 16: Data Export & PDF Report
+  # ==========================================
+  with tabs[15]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
