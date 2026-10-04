@@ -594,7 +594,8 @@ def main():
       "🎧 Active Noise Cancellation",
       "🏛️ 3D Room Acoustics",
       "📶 Information Theory",
-      "🛰️ Phased Array Beamforming", # NEW VERSION 16 TAB
+      "🛰️ Phased Array Beamforming",
+      "🚀 Supersonic Shockwave", # NEW VERSION 17 TAB
       "📊 Data Export",
   ])
 
@@ -2025,14 +2026,14 @@ def main():
 
             # Educational Insight
             if snr_db < 10:
-                st.error("⚠️ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
+                st.error("⚠️️ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
             elif snr_db > 30:
                 st.success("🌟 **High SNR:** Excellent channel conditions! The signal is clear, supporting high-speed data transmission like HD video streaming or 5G networks.")
             else:
                 st.info("💡 **Moderate SNR:** Standard communication quality. Notice how the channel capacity (kbps) reacts linearly to bandwidth but logarithmically to the signal-to-noise ratio!")
 
   # ==========================================
-  # NEW TAB 18: Phased Array Beamforming (Version 16.0)
+  # TAB 18: Phased Array Beamforming 
   # ==========================================
   with tabs[17]:
     st.header("Phased Array Beamforming Simulator")
@@ -2131,9 +2132,101 @@ def main():
                 st.plotly_chart(fig_heat, use_container_width=True)
 
   # ==========================================
-  # TAB 19: Data Export & PDF Report
+  # NEW TAB 19: Supersonic Shockwave (Version 17.0)
   # ==========================================
   with tabs[18]:
+      st.header("Supersonic Shockwave & Mach Cone (2D Sonic Boom)")
+      st.markdown("When a sound source moves faster than the speed of sound ($v > c$), the wave fronts pile up and form a conical shock wave known as the **Mach Cone**. This sudden pressure change is heard as a **Sonic Boom**.")
+
+      col_mach1, col_mach2 = st.columns(2)
+      mach_number = col_mach1.slider("Source Velocity (Mach Number, M)", 0.0, 3.0, 1.5, 0.1, help="M = v / c. M<1 is Subsonic, M=1 is Transonic, M>1 is Supersonic.")
+      num_waves = col_mach2.slider("Number of Wave Fronts", 10, 100, 40)
+
+      if st.button("Simulate 2D Wave Propagation"):
+          with st.spinner("Calculating spatial wavefronts..."):
+              c_sound = 343.0  # Speed of sound m/s
+              v_source = mach_number * c_sound
+              
+              t_current = 2.0  # Simulate after 2 seconds
+              times = np.linspace(0, t_current, num_waves, endpoint=False)
+              
+              fig_mach = go.Figure()
+              
+              # Add Wave Fronts (Circles)
+              phi = np.linspace(0, 2*np.pi, 100)
+              for t_emitted in times:
+                  # Where was the source when it emitted this wave?
+                  x_emit = v_source * t_emitted
+                  # How big is the wave now?
+                  r_wave = c_sound * (t_current - t_emitted)
+                  
+                  x_circle = x_emit + r_wave * np.cos(phi)
+                  y_circle = r_wave * np.sin(phi)
+                  
+                  # Plotting the expanding spherical wave
+                  fig_mach.add_trace(go.Scatter(
+                      x=x_circle, y=y_circle,
+                      mode='lines',
+                      line=dict(color='rgba(0, 188, 212, 0.4)', width=1),
+                      showlegend=False,
+                      hoverinfo='skip'
+                  ))
+                  
+              # Current position of the source
+              x_current = v_source * t_current
+              fig_mach.add_trace(go.Scatter(
+                  x=[x_current], y=[0],
+                  mode='markers',
+                  marker=dict(color='#E91E63', size=12, symbol='triangle-right'),
+                  name='Moving Source'
+              ))
+              
+              # If Supersonic, draw the Mach Cone
+              if mach_number > 1.0:
+                  mach_angle = np.arcsin(1.0 / mach_number)
+                  cone_length = x_current * 1.2
+                  
+                  # Upper and lower lines of the cone
+                  x_line = [x_current, x_current - cone_length * np.cos(mach_angle)]
+                  y_line_up = [0, cone_length * np.sin(mach_angle)]
+                  y_line_down = [0, -cone_length * np.sin(mach_angle)]
+                  
+                  fig_mach.add_trace(go.Scatter(
+                      x=x_line, y=y_line_up, mode='lines', line=dict(color='#FF9800', width=3, dash='dash'), name='Mach Cone Envelope'
+                  ))
+                  fig_mach.add_trace(go.Scatter(
+                      x=x_line, y=y_line_down, mode='lines', line=dict(color='#FF9800', width=3, dash='dash'), showlegend=False
+                  ))
+                  
+                  st.error(f"💥 **Supersonic Flight! (Sonic Boom Created)** \n\nMach Angle ($\\theta$): **{np.rad2deg(mach_angle):.2f}°**")
+              elif mach_number == 1.0:
+                  st.warning("✈️ **Transonic Flight (Breaking the Sound Barrier):** The source is moving exactly at the speed of sound. Wave fronts are piling up at the nose, creating an acoustic wall of infinite pressure!")
+              elif mach_number > 0.0:
+                  st.info("🚁 **Subsonic Flight:** The source is moving slower than sound. Notice the Doppler shift (waves are compressed at the front and stretched at the back).")
+              else:
+                  st.info("🛑 **Stationary Object:** The sound waves form perfect concentric circles.")
+
+              # Layout adjustments
+              x_range_max = max(x_current * 1.2, c_sound * t_current * 1.2)
+              fig_mach.update_layout(
+                  title=f"2D Wave Propagation (Mach {mach_number:.1f})",
+                  xaxis_title="Distance X (meters)",
+                  yaxis_title="Distance Y (meters)",
+                  template="plotly_dark",
+                  yaxis=dict(scaleanchor="x", scaleratio=1), # Keep circles round!
+                  xaxis=dict(range=[-c_sound * t_current * 1.1, x_range_max]),
+                  height=600,
+                  margin=dict(l=0, r=0, b=40, t=60)
+              )
+              
+              st.plotly_chart(fig_mach, use_container_width=True)
+              
+              st.latex(r"\sin(\theta) = \frac{c}{v} = \frac{1}{\text{Mach Number (M)}}")
+
+  # ==========================================
+  # TAB 20: Data Export & PDF Report
+  # ==========================================
+  with tabs[19]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
