@@ -586,7 +586,8 @@ def main():
       "🌀 Chaos Dynamics",
       "🎛️ Kinematics & DSP",
       "🧠 Psychoacoustics",
-      "📐 Lissajous & SHM",
+      "📐 Oscilloscope & SHM",
+      "🧩 3D Fourier Series",  # NEW VERSION 10 TAB
       "📊 Data Export",
   ])
 
@@ -1458,7 +1459,7 @@ def main():
         st.plotly_chart(fig_mel, use_container_width=True)
 
   # ==========================================
-  # NEW TAB 11: Lissajous & Simple Harmonic Motion (Version 5.0)
+  # TAB 11: Lissajous & Simple Harmonic Motion 
   # ==========================================
   with tabs[10]:
     st.header("Oscilloscope: Lissajous Figures & Damped Harmonic Motion")
@@ -1568,9 +1569,76 @@ def main():
             st.plotly_chart(fig_beat, use_container_width=True)
 
   # ==========================================
-  # TAB 12: Data Export & PDF Report
+  # NEW TAB 12: 3D Fourier Series Deconstruction (Version 10.0)
   # ==========================================
   with tabs[11]:
+    st.header("3D Fourier Series Deconstruction")
+    st.markdown("Joseph Fourier proved that any complex periodic waveform can be mathematically deconstructed into a sum of simple sine waves (harmonics). This simulator visually breaks apart a complex wave in 3D space to reveal its fundamental components.")
+
+    col_f1, col_f2, col_f3 = st.columns(3)
+    complex_wave_type = col_f1.selectbox("Complex Wave Type", ["Square Wave", "Sawtooth Wave"])
+    fund_freq = col_f2.slider("Fundamental Frequency (Hz)", 1.0, 50.0, 5.0, 1.0)
+    num_harmonics = col_f3.slider("Number of Harmonics (N)", 1, 50, 10)
+
+    if st.button("Deconstruct Wave to 3D Harmonics"):
+        with st.spinner("Calculating 3D Fourier Harmonics..."):
+            t_fourier = np.linspace(0, 2.0/fund_freq, 1000) # Show 2 cycles
+            
+            fig_fourier = go.Figure()
+            summed_wave = np.zeros_like(t_fourier)
+
+            for n in range(1, num_harmonics + 1):
+                if complex_wave_type == "Square Wave":
+                    if n % 2 == 0:
+                        continue # Square wave only has odd harmonics
+                    amplitude = (4.0 / np.pi) * (1.0 / n)
+                else: # Sawtooth wave
+                    amplitude = (2.0 / np.pi) * ((-1.0)**(n+1) / n)
+
+                harmonic_wave = amplitude * np.sin(2 * np.pi * (n * fund_freq) * t_fourier)
+                summed_wave += harmonic_wave
+
+                # Add individual harmonic in 3D (X=Time, Y=Harmonic Number, Z=Amplitude)
+                fig_fourier.add_trace(go.Scatter3d(
+                    x=t_fourier,
+                    y=[n]*len(t_fourier),
+                    z=harmonic_wave,
+                    mode='lines',
+                    name=f"Harmonic {n}",
+                    line=dict(color=px.colors.sequential.Plasma[n % len(px.colors.sequential.Plasma)], width=3)
+                ))
+
+            # Add the resultant complex wave at the front (Y=0)
+            fig_fourier.add_trace(go.Scatter3d(
+                x=t_fourier,
+                y=[0]*len(t_fourier),
+                z=summed_wave,
+                mode='lines',
+                name="Resultant Wave",
+                line=dict(color='#1DB954', width=6)
+            ))
+
+            fig_fourier.update_layout(
+                title=f"3D Fourier Deconstruction ({complex_wave_type}, N={num_harmonics})",
+                scene=dict(
+                    xaxis_title="Time (s)",
+                    yaxis_title="Harmonic Number (n)",
+                    zaxis_title="Amplitude",
+                    yaxis=dict(autorange="reversed") # Put resultant wave at the front
+                ),
+                template="plotly_dark",
+                height=700,
+                margin=dict(l=0, r=0, b=0, t=40),
+                showlegend=False
+            )
+            st.plotly_chart(fig_fourier, use_container_width=True)
+            
+            st.info("💡 **Physics Insight (Gibbs Phenomenon):** Notice how summing more harmonic sine waves makes the resultant wave (green line at the front) look closer to a perfect Square/Sawtooth wave. The slight ringing at the sharp edges is a mathematical limitation known as the *Gibbs Phenomenon*.")
+
+  # ==========================================
+  # TAB 13: Data Export & PDF Report
+  # ==========================================
+  with tabs[12]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
