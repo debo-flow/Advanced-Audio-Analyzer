@@ -423,7 +423,7 @@ def main():
       if audio_recorder is None:
           st.error("Please install the required library: `pip install audio-recorder-streamlit`")
       else:
-          st.markdown("### 🎙️ Live Recording")
+          st.markdown("### 🎙️️ Live Recording")
           st.info("Click the microphone icon to start/stop recording.")
           recorded_audio = audio_recorder(text="", recording_color="#E91E63", neutral_color="#1DB954")
           if recorded_audio:
@@ -595,7 +595,8 @@ def main():
       "🏛️ 3D Room Acoustics",
       "📶 Information Theory",
       "🛰️ Phased Array Beamforming",
-      "🚀 Supersonic Shockwave", # NEW VERSION 17 TAB
+      "🚀 Supersonic Shockwave", 
+      "🌌 Uncertainty Principle", # NEW VERSION 18 TAB
       "📊 Data Export",
   ])
 
@@ -2026,7 +2027,7 @@ def main():
 
             # Educational Insight
             if snr_db < 10:
-                st.error("⚠️️ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
+                st.error("⚠ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
             elif snr_db > 30:
                 st.success("🌟 **High SNR:** Excellent channel conditions! The signal is clear, supporting high-speed data transmission like HD video streaming or 5G networks.")
             else:
@@ -2132,7 +2133,7 @@ def main():
                 st.plotly_chart(fig_heat, use_container_width=True)
 
   # ==========================================
-  # NEW TAB 19: Supersonic Shockwave (Version 17.0)
+  # TAB 19: Supersonic Shockwave
   # ==========================================
   with tabs[18]:
       st.header("Supersonic Shockwave & Mach Cone (2D Sonic Boom)")
@@ -2224,9 +2225,97 @@ def main():
               st.latex(r"\sin(\theta) = \frac{c}{v} = \frac{1}{\text{Mach Number (M)}}")
 
   # ==========================================
-  # TAB 20: Data Export & PDF Report
+  # NEW TAB 20: Uncertainty Principle (Version 18.0)
   # ==========================================
   with tabs[19]:
+    st.header("The Acoustic Uncertainty Principle (Gabor Limit)")
+    st.markdown("Heisenberg's Uncertainty Principle from quantum mechanics directly applies to signal processing. The **Gabor Limit** proves that a signal cannot be perfectly localized in both Time ($\Delta t$) and Frequency ($\Delta f$) simultaneously. A perfectly sharp time pulse has an infinite frequency bandwidth!")
+    
+    st.latex(r"\Delta t \cdot \Delta f \ge \frac{1}{4\pi} \approx 0.0795")
+    st.caption("Here we simulate a Gaussian Wave Packet. Shrink the 'Time Width' slider to see the frequency spectrum inevitably broaden!")
+
+    col_up1, col_up2 = st.columns(2)
+    sigma_t_ms = col_up1.slider("Gaussian Time Width ($\sigma_t$) in ms", 0.5, 50.0, 10.0, 0.5)
+    f_c = col_up2.slider("Center Frequency ($f_c$) Hz", 100.0, 2000.0, 440.0, 10.0)
+
+    if st.button("Generate Gaussian Wave Packet"):
+        with st.spinner("Calculating time-frequency bounds..."):
+            sr_gabor = 44100
+            dur_gabor = 0.5 # half second is enough for visualization
+            t_gabor = np.linspace(-dur_gabor/2, dur_gabor/2, int(sr_gabor * dur_gabor), endpoint=False)
+            
+            sigma_t = sigma_t_ms / 1000.0
+            
+            # Create Gaussian envelope and wave packet
+            envelope = np.exp(-(t_gabor**2) / (2 * sigma_t**2))
+            wave_packet = envelope * np.cos(2 * np.pi * f_c * t_gabor)
+            
+            # Frequency Domain (FFT)
+            freqs = scipy.fft.rfftfreq(len(wave_packet), 1/sr_gabor)
+            fft_mag = np.abs(scipy.fft.rfft(wave_packet))
+            fft_mag = fft_mag / np.max(fft_mag) # Normalize
+            
+            # Mathematical calculations for variances (Delta t and Delta f)
+            power_t = wave_packet**2
+            power_t = power_t / np.sum(power_t)
+            delta_t_num = np.sqrt(np.sum(t_gabor**2 * power_t))
+            
+            power_f = fft_mag**2
+            power_f = power_f / np.sum(power_f)
+            delta_f_num = np.sqrt(np.sum((freqs - f_c)**2 * power_f))
+            
+            uncertainty_product = delta_t_num * delta_f_num
+
+            # --- PLOTTING ---
+            col_graph1, col_graph2 = st.columns(2)
+            
+            # Time Domain Plot (zoomed in to +/- 100ms)
+            zoom_samples = int(sr_gabor * 0.1) 
+            mid_idx = len(t_gabor) // 2
+            t_plot = t_gabor[mid_idx - zoom_samples : mid_idx + zoom_samples]
+            wave_plot = wave_packet[mid_idx - zoom_samples : mid_idx + zoom_samples]
+            env_plot = envelope[mid_idx - zoom_samples : mid_idx + zoom_samples]
+            
+            fig_time = go.Figure()
+            fig_time.add_trace(go.Scatter(x=t_plot*1000, y=wave_plot, mode='lines', line=dict(color='#00BCD4', width=2), name='Wave Packet'))
+            fig_time.add_trace(go.Scatter(x=t_plot*1000, y=env_plot, mode='lines', line=dict(color='#E91E63', width=2, dash='dash'), name='Gaussian Envelope'))
+            fig_time.add_trace(go.Scatter(x=t_plot*1000, y=-env_plot, mode='lines', line=dict(color='#E91E63', width=2, dash='dash'), showlegend=False))
+            fig_time.update_layout(title="Time Domain ($\Delta t$)", xaxis_title="Time (ms)", yaxis_title="Amplitude", template="plotly_dark", height=350, margin=dict(l=0, r=0, b=0, t=40))
+            
+            with col_graph1:
+                st.plotly_chart(fig_time, use_container_width=True)
+                st.info(f"⏱️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
+
+            # Frequency Domain Plot (zoomed around center freq)
+            f_idx = np.where((freqs > f_c - 1000) & (freqs < f_c + 1000))[0]
+            
+            fig_freq = go.Figure()
+            fig_freq.add_trace(go.Scatter(x=freqs[f_idx], y=fft_mag[f_idx], mode='lines', line=dict(color='#FF9800', width=2), fill='tozeroy', name='Frequency Spectrum'))
+            fig_freq.update_layout(title="Frequency Domain ($\Delta f$)", xaxis_title="Frequency (Hz)", yaxis_title="Normalized Magnitude", template="plotly_dark", height=350, margin=dict(l=0, r=0, b=0, t=40))
+            
+            with col_graph2:
+                st.plotly_chart(fig_freq, use_container_width=True)
+                st.info(f"📻 **Frequency Spread ($\Delta f$):** {delta_f_num:.2f} Hz")
+
+            # Final Proof
+            st.divider()
+            col_res1, col_res2 = st.columns([2, 1])
+            with col_res1:
+                st.success(f"**Mathematical Proof:** \n\n$\Delta t \cdot \Delta f$ = ({delta_t_num:.6f}) × ({delta_f_num:.2f}) = **{uncertainty_product:.5f}**")
+                if uncertainty_product >= 0.079:
+                    st.caption("✅ The product perfectly respects the theoretical lower bound of $1/4\pi \\approx 0.0795$. The universe is stable!")
+            
+            # Audio Playback
+            buffer_gabor = io.BytesIO()
+            sf.write(buffer_gabor, wave_packet, sr_gabor, format="WAV")
+            with col_res2:
+                st.markdown("🎧 **Listen to the Wave Packet:**")
+                st.audio(buffer_gabor.getvalue(), format="audio/wav")
+
+  # ==========================================
+  # TAB 21: Data Export & PDF Report
+  # ==========================================
+  with tabs[20]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
