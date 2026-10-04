@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots  # NEW IMPORT FOR SUBPLOTS
+from plotly.subplots import make_subplots
 import pywt
 import scipy.fft
 import scipy.signal
@@ -589,7 +589,8 @@ def main():
       "🧠 Psychoacoustics",
       "📐 Oscilloscope & SHM",
       "🧩 3D Fourier Series",
-      "📡 Wave Modulation", # NEW VERSION 11 TAB
+      "📡 Wave Modulation",
+      "🔲 Chladni Resonance", # NEW VERSION 12 TAB
       "📊 Data Export",
   ])
 
@@ -1571,7 +1572,7 @@ def main():
             st.plotly_chart(fig_beat, use_container_width=True)
 
   # ==========================================
-  # TAB 12: 3D Fourier Series Deconstruction (Version 10.0)
+  # TAB 12: 3D Fourier Series Deconstruction 
   # ==========================================
   with tabs[11]:
     st.header("3D Fourier Series Deconstruction")
@@ -1638,7 +1639,7 @@ def main():
             st.info("💡 **Physics Insight (Gibbs Phenomenon):** Notice how summing more harmonic sine waves makes the resultant wave (green line at the front) look closer to a perfect Square/Sawtooth wave. The slight ringing at the sharp edges is a mathematical limitation known as the *Gibbs Phenomenon*.")
 
   # ==========================================
-  # NEW TAB 13: Wave Modulation Simulator (Version 11.0)
+  # TAB 13: Wave Modulation Simulator 
   # ==========================================
   with tabs[12]:
     st.header("Wave Modulation Simulator (AM & FM)")
@@ -1728,9 +1729,66 @@ def main():
                 st.warning("⚠️ **Overmodulation Detected:** The Modulation Index ($m$) is greater than 1. Notice how the envelope crosses the zero line, causing phase reversal and signal distortion. In real-world radios, this causes severe noise!")
 
   # ==========================================
-  # TAB 14: Data Export & PDF Report
+  # NEW TAB 14: Chladni Plate Resonance (Version 12.0)
   # ==========================================
   with tabs[13]:
+    st.header("Chladni Plate Resonance (2D Standing Waves)")
+    st.markdown("In the late 18th century, physicist Ernst Chladni demonstrated that a vibrating rigid metal plate creates mesmerizing geometric patterns. Sand sprinkled on the plate collects along the **Nodal Lines**—areas where the 2D standing waves cancel each other out and vibration is zero.")
+
+    col_c1, col_c2, col_c3 = st.columns(3)
+    m_mode = col_c1.slider("Mode (m)", 1, 15, 3)
+    n_mode = col_c2.slider("Mode (n)", 1, 15, 4)
+    sign = col_c3.radio("Superposition Sign", ["Positive (+)", "Negative (-)"])
+
+    if st.button("Generate Chladni Pattern"):
+        with st.spinner("Calculating 2D resonance pattern..."):
+            x = np.linspace(0, 1, 400)
+            y = np.linspace(0, 1, 400)
+            X, Y = np.meshgrid(x, y)
+
+            # Calculate the standing wave components
+            term1 = np.sin(m_mode * np.pi * X) * np.sin(n_mode * np.pi * Y)
+            term2 = np.sin(n_mode * np.pi * X) * np.sin(m_mode * np.pi * Y)
+
+            if sign == "Positive (+)":
+                Z = term1 + term2
+                eq_str = fr"z(x,y) = \sin({m_mode}\pi x)\sin({n_mode}\pi y) + \sin({n_mode}\pi x)\sin({m_mode}\pi y)"
+            else:
+                Z = term1 - term2
+                eq_str = fr"z(x,y) = \sin({m_mode}\pi x)\sin({n_mode}\pi y) - \sin({n_mode}\pi x)\sin({m_mode}\pi y)"
+
+            st.latex(eq_str)
+
+            # Calculate absolute vibration (Sand settles where vibration is 0)
+            Z_abs = np.abs(Z)
+
+            # Using a copper colorscale with negative Z_abs 
+            # This makes 0 (nodes) the highest value (bright sand/copper color) 
+            # and >0 (antinodes) lower values (dark vibrating metal)
+            fig_chladni = go.Figure(data=go.Heatmap(
+                z=-Z_abs,
+                x=x,
+                y=y,
+                colorscale="copper", 
+                showscale=False
+            ))
+
+            fig_chladni.update_layout(
+                title=f"Chladni Resonance Pattern (m={m_mode}, n={n_mode})",
+                xaxis=dict(scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                template="plotly_dark",
+                height=600,
+                margin=dict(l=0, r=0, b=40, t=40)
+            )
+            st.plotly_chart(fig_chladni, use_container_width=True)
+            
+            st.info("💡 **Physics Insight:** The bright copper/golden lines represent the **Nodal Lines** ($z = 0$). If you sprinkled sand on a real square metal plate and vibrated it at this specific frequency, the sand would bounce away from the vibrating antinodes and settle exactly on these bright static lines!")
+
+  # ==========================================
+  # TAB 15: Data Export & PDF Report
+  # ==========================================
+  with tabs[14]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
