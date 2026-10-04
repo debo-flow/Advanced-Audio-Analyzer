@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots  # NEW IMPORT FOR SUBPLOTS
 import pywt
 import scipy.fft
 import scipy.signal
@@ -587,7 +588,8 @@ def main():
       "🎛️ Kinematics & DSP",
       "🧠 Psychoacoustics",
       "📐 Oscilloscope & SHM",
-      "🧩 3D Fourier Series",  # NEW VERSION 10 TAB
+      "🧩 3D Fourier Series",
+      "📡 Wave Modulation", # NEW VERSION 11 TAB
       "📊 Data Export",
   ])
 
@@ -1569,7 +1571,7 @@ def main():
             st.plotly_chart(fig_beat, use_container_width=True)
 
   # ==========================================
-  # NEW TAB 12: 3D Fourier Series Deconstruction (Version 10.0)
+  # TAB 12: 3D Fourier Series Deconstruction (Version 10.0)
   # ==========================================
   with tabs[11]:
     st.header("3D Fourier Series Deconstruction")
@@ -1636,9 +1638,99 @@ def main():
             st.info("💡 **Physics Insight (Gibbs Phenomenon):** Notice how summing more harmonic sine waves makes the resultant wave (green line at the front) look closer to a perfect Square/Sawtooth wave. The slight ringing at the sharp edges is a mathematical limitation known as the *Gibbs Phenomenon*.")
 
   # ==========================================
-  # TAB 13: Data Export & PDF Report
+  # NEW TAB 13: Wave Modulation Simulator (Version 11.0)
   # ==========================================
   with tabs[12]:
+    st.header("Wave Modulation Simulator (AM & FM)")
+    st.markdown("Telecommunication physics relies on modulation to transmit low-frequency message signals over long distances using high-frequency carrier waves.")
+
+    col_m1, col_m2 = st.columns(2)
+    mod_type = col_m1.radio("Modulation Type", ["Amplitude Modulation (AM)", "Frequency Modulation (FM)"])
+
+    st.subheader("Signal Parameters")
+    c_fm1, c_fm2, c_fm3 = st.columns(3)
+    f_c = c_fm1.slider("Carrier Frequency ($f_c$) Hz", 100.0, 2000.0, 800.0, 50.0)
+    f_m = c_fm2.slider("Message Frequency ($f_m$) Hz", 1.0, 100.0, 10.0, 1.0)
+
+    if mod_type == "Amplitude Modulation (AM)":
+        mod_index = c_fm3.slider("Modulation Index ($m$)", 0.0, 2.0, 0.5, 0.1)
+        equation = r"y_{AM}(t) = [1 + m \cdot \sin(2\pi f_m t)] \cdot \sin(2\pi f_c t)"
+    else:
+        mod_index = c_fm3.slider("Modulation Index ($\beta$)", 0.0, 20.0, 5.0, 1.0)
+        equation = r"y_{FM}(t) = \sin[2\pi f_c t + \beta \cdot \sin(2\pi f_m t)]"
+
+    st.latex(equation)
+
+    if st.button("Simulate Modulation"):
+        with st.spinner(f"Calculating {mod_type}..."):
+            sr_mod = 44100
+            dur_mod = 0.5  # 0.5 seconds is enough to see the graph clearly
+            t_mod = np.linspace(0, dur_mod, int(sr_mod * dur_mod), endpoint=False)
+
+            msg_wave = np.sin(2 * np.pi * f_m * t_mod)
+            carrier_wave = np.sin(2 * np.pi * f_c * t_mod)
+
+            if mod_type == "Amplitude Modulation (AM)":
+                mod_wave = (1 + mod_index * msg_wave) * carrier_wave
+            else:
+                mod_wave = np.sin(2 * np.pi * f_c * t_mod + mod_index * np.sin(2 * np.pi * f_m * t_mod))
+
+            # Downsample for faster Plotly rendering (show only 0.1s for clarity)
+            plot_limit = int(sr_mod * 0.1)
+            t_plot = t_mod[:plot_limit]
+            msg_plot = msg_wave[:plot_limit]
+            car_plot = carrier_wave[:plot_limit]
+            mod_plot = mod_wave[:plot_limit]
+
+            # Create Subplots
+            fig_mod = make_subplots(
+                rows=3, cols=1, shared_xaxes=True,
+                subplot_titles=(
+                    "Message Signal (Low Frequency Data)",
+                    "Carrier Signal (High Frequency Transport)",
+                    f"Resultant {mod_type} Signal"
+                )
+            )
+
+            fig_mod.add_trace(go.Scatter(x=t_plot, y=msg_plot, line=dict(color='#00BCD4', width=2), name="Message"), row=1, col=1)
+            fig_mod.add_trace(go.Scatter(x=t_plot, y=car_plot, line=dict(color='#FF9800', width=1), name="Carrier"), row=2, col=1)
+
+            if mod_type == "Amplitude Modulation (AM)":
+                # Draw AM Envelopes
+                env_upper = 1 + mod_index * msg_plot
+                env_lower = -(1 + mod_index * msg_plot)
+                fig_mod.add_trace(go.Scatter(x=t_plot, y=mod_plot, line=dict(color='#E91E63', width=1.5), name="AM Signal"), row=3, col=1)
+                fig_mod.add_trace(go.Scatter(x=t_plot, y=env_upper, line=dict(color='rgba(255,255,255,0.3)', dash='dash'), name="Envelope+", showlegend=False), row=3, col=1)
+                fig_mod.add_trace(go.Scatter(x=t_plot, y=env_lower, line=dict(color='rgba(255,255,255,0.3)', dash='dash'), name="Envelope-", showlegend=False), row=3, col=1)
+            else:
+                fig_mod.add_trace(go.Scatter(x=t_plot, y=mod_plot, line=dict(color='#E91E63', width=1.5), name="FM Signal"), row=3, col=1)
+
+            fig_mod.update_layout(height=650, template="plotly_dark", title_text="Telecommunication: Wave Modulation Visualization")
+            fig_mod.update_xaxes(title_text="Time (s)", row=3, col=1)
+            
+            st.plotly_chart(fig_mod, use_container_width=True)
+
+            # Audio playback (Generate 2 full seconds for listening)
+            dur_listen = 2.0
+            t_listen = np.linspace(0, dur_listen, int(sr_mod * dur_listen), endpoint=False)
+            if mod_type == "Amplitude Modulation (AM)":
+                listen_wave = (1 + mod_index * np.sin(2 * np.pi * f_m * t_listen)) * np.sin(2 * np.pi * f_c * t_listen)
+            else:
+                listen_wave = np.sin(2 * np.pi * f_c * t_listen + mod_index * np.sin(2 * np.pi * f_m * t_listen))
+                
+            buffer_mod = io.BytesIO()
+            sf.write(buffer_mod, listen_wave, sr_mod, format="WAV")
+            
+            st.success("Simulation Complete! Listen to the modulated signal below:")
+            st.audio(buffer_mod.getvalue(), format="audio/wav")
+
+            if mod_type == "Amplitude Modulation (AM)" and mod_index > 1.0:
+                st.warning("⚠️ **Overmodulation Detected:** The Modulation Index ($m$) is greater than 1. Notice how the envelope crosses the zero line, causing phase reversal and signal distortion. In real-world radios, this causes severe noise!")
+
+  # ==========================================
+  # TAB 14: Data Export & PDF Report
+  # ==========================================
+  with tabs[13]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
