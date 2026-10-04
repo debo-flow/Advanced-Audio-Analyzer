@@ -592,7 +592,8 @@ def main():
       "📡 Wave Modulation",
       "🔲 Chladni Resonance",
       "🎧 Active Noise Cancellation",
-      "🏛️ 3D Room Acoustics", # NEW VERSION 14 TAB
+      "🏛️ 3D Room Acoustics",
+      "📶 Information Theory", # NEW VERSION 15 TAB
       "📊 Data Export",
   ])
 
@@ -1869,92 +1870,87 @@ def main():
             st.info("💡 **Engineering Note:** In perfect theoretical conditions ($180^\circ$ phase, 100% amplitude match, 0ms delay), the audio cancels out to complete silence. Notice how even a 0.5ms delay (DSP Processing Latency) drastically ruins the cancellation, especially for high frequencies. This is why real ANC headphones need extremely fast microchips!")
 
   # ==========================================
-  # NEW TAB 16: 3D Room Acoustics (Version 14.0)
-  # ==========================================
-  with tabs[15]:
-    st.header("3D Room Acoustics & Standing Waves (Room Modes)")
-    st.markdown("Acoustic standing waves form between parallel walls in a room, creating resonant frequencies called **Room Modes**. This simulator calculates these modes using the Rayleigh formula and synthesizes the room's reverberation directly onto your voice via mathematical Convolution.")
-    
-    st.latex(r"f_{p,q,r} = \frac{c}{2} \sqrt{\left(\frac{p}{L}\right)^2 + \left(\frac{q}{W}\right)^2 + \left(\frac{r}{H}\right)^2}")
-
-    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
-    room_L = col_r1.slider("Room Length (m)", 2.0, 30.0, 5.0, 0.1)
-    room_W = col_r2.slider("Room Width (m)", 2.0, 30.0, 4.0, 0.1)
-    room_H = col_r3.slider("Room Height (m)", 2.0, 15.0, 3.0, 0.1)
-    rt60_sim = col_r4.slider("Simulated RT60 Decay (s)", 0.1, 5.0, 1.2, 0.1)
-    
-    if st.button("Simulate Room Acoustics on Audio"):
-        with st.spinner("Calculating modes and convoluting room impulse response..."):
-            c_room = 343.0 # Standard speed of sound in air
-            
-            # 1. Calculate Room Modes (p, q, r up to 3)
-            modes = []
-            for p in range(4):
-                for q in range(4):
-                    for r in range(4):
-                        if p == 0 and q == 0 and r == 0:
-                            continue
-                        freq = (c_room / 2.0) * np.sqrt((p/room_L)**2 + (q/room_W)**2 + (r/room_H)**2)
-                        
-                        zeros = [p, q, r].count(0)
-                        if zeros == 2:
-                            mode_type = "Axial Mode"
-                        elif zeros == 1:
-                            mode_type = "Tangential Mode"
-                        else:
-                            mode_type = "Oblique Mode"
-                            
-                        modes.append({"p": p, "q": q, "r": r, "Frequency (Hz)": freq, "Type": mode_type})
-            
-            df_modes = pd.DataFrame(modes).sort_values("Frequency (Hz)").reset_index(drop=True)
-            df_modes = df_modes[df_modes["Frequency (Hz)"] <= 300] # Usually only matter below 300Hz
-            
-            # 2. Display the modes
-            st.success(f"Calculated {len(df_modes)} resonant standing waves (Room Modes) below 300 Hz for a {room_L}m x {room_W}m x {room_H}m room.")
-            
-            fig_modes = px.bar(df_modes, x="Frequency (Hz)", y="Type", color="Type", 
-                               title="Room Modes Distribution (< 300 Hz)", 
-                               orientation='h', template="plotly_dark",
-                               color_discrete_map={"Axial Mode": "#E91E63", "Tangential Mode": "#FF9800", "Oblique Mode": "#00BCD4"})
-            fig_modes.update_layout(height=300, margin=dict(l=0, r=0, b=0, t=40))
-            st.plotly_chart(fig_modes, use_container_width=True)
-            
-            # 3. Simulate Reverb via Convolution
-            # Generate exponential decay noise for Impulse Response
-            ir_length = int(rt60_sim * sr)
-            t_ir = np.arange(ir_length) / sr
-            
-            # Envelope decays by 60dB (-6.91 nepers) at t = rt60
-            decay_env = np.exp(-6.91 * t_ir / rt60_sim)
-            
-            # Add some frequency coloring based on room size (simple lowpass filter)
-            noise = np.random.randn(ir_length)
-            cutoff = max(500, min(8000, 15000 / (room_L * room_W * room_H / 100))) # Larger room = darker reverb
-            b, a = scipy.signal.butter(2, cutoff / (sr/2), btype='low')
-            colored_noise = scipy.signal.filtfilt(b, a, noise)
-            
-            rir = colored_noise * decay_env
-            rir = rir / np.max(np.abs(rir)) # Normalize Impulse Response
-            
-            # Convolve input audio with Room Impulse Response (RIR)
-            y_reverb = scipy.signal.fftconvolve(y, rir, mode='full')
-            
-            # Mix Dry / Wet
-            y_padded = np.pad(y, (0, len(y_reverb) - len(y))) # Pad original audio to match reverb tail length
-            wet_mix = 0.35 # 35% Reverb, 65% Original Voice
-            y_final = (1 - wet_mix) * y_padded + wet_mix * y_reverb
-            
-            y_final = y_final / np.max(np.abs(y_final)) # Normalize final audio to prevent clipping
-            
-            buffer_rev = io.BytesIO()
-            sf.write(buffer_rev, y_final, sr, format="WAV")
-            st.markdown(f"### 🎧 Listen to your voice inside the simulated room")
-            st.audio(buffer_rev.getvalue(), format="audio/wav")
-
-  # ==========================================
-  # TAB 17: Data Export & PDF Report
+  # NEW TAB 17: Information Theory & SNR (Version 15.0)
   # ==========================================
   with tabs[16]:
+    st.header("Information Theory & Signal-to-Noise Ratio (SNR)")
+    st.markdown("In 1948, Claude Shannon founded Information Theory. The **Shannon-Hartley Theorem** defines the theoretical maximum data transfer rate (Channel Capacity, $C$) of a communication channel based on its Bandwidth ($B$) and Signal-to-Noise Ratio ($S/N$).")
+    st.latex(r"C = B \log_2\left(1 + \frac{S}{N}\right)")
+
+    st.info("🌐 **Real-World Telecom Test:** Add thermal/white noise to your voice recording to simulate a degraded radio or digital channel, and see how many **Bits Per Second (bps)** it can transmit!")
+
+    col_snr1, col_snr2 = st.columns(2)
+    channel_bw = col_snr1.slider("Channel Bandwidth (Hz)", 1000, int(nyquist), 3000, step=500, help="Standard telephone bandwidth is ~3000 Hz")
+    noise_level = col_snr2.slider("Added White Noise Level (%)", 0.0, 200.0, 20.0, step=5.0)
+
+    if st.button("Calculate Channel Capacity & Apply Noise"):
+        with st.spinner("Calculating Signal Power, Noise Power, and Shannon Capacity..."):
+            # Calculate signal power
+            signal_power = np.mean(y**2)
+            if signal_power == 0:
+                signal_power = 1e-10 # Prevent division by zero
+
+            # Generate Noise
+            noise_amp = (noise_level / 100.0) * np.max(np.abs(y)) if np.max(np.abs(y)) > 0 else 0.01
+            noise = np.random.randn(len(y)) * noise_amp
+            noise_power = np.mean(noise**2)
+            if noise_power == 0:
+                noise_power = 1e-10
+
+            # Mix original signal and noise
+            y_noisy = y + noise
+
+            # Calculate SNR
+            snr_linear = signal_power / noise_power
+            snr_db = 10 * np.log10(snr_linear)
+
+            # Shannon-Hartley Theorem Calculation
+            capacity_bps = channel_bw * np.log2(1 + snr_linear)
+            capacity_kbps = capacity_bps / 1000.0
+
+            st.success("Analysis Complete!")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Signal-to-Noise Ratio (SNR)", f"{snr_db:.2f} dB")
+            m2.metric("Channel Bandwidth", f"{channel_bw:,} Hz")
+            m3.metric("Max Channel Capacity (C)", f"{capacity_kbps:.2f} kbps")
+
+            # Visualizing the noisy signal
+            plot_limit = min(len(y), int(sr * 0.05)) # 50ms snippet
+            t_plot = np.linspace(0, plot_limit/sr, plot_limit)
+
+            fig_snr = go.Figure()
+            fig_snr.add_trace(go.Scatter(x=t_plot, y=y[:plot_limit], mode='lines', line=dict(color='#1DB954', width=2), name="Original Signal"))
+            fig_snr.add_trace(go.Scatter(x=t_plot, y=y_noisy[:plot_limit], mode='lines', line=dict(color='rgba(233, 30, 99, 0.6)', width=1), name="Noisy Signal (Transmitted)"))
+
+            fig_snr.update_layout(
+                title=f"Original vs Noisy Signal (50ms) | SNR: {snr_db:.1f} dB",
+                xaxis_title="Time (s)",
+                yaxis_title="Amplitude",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_snr, use_container_width=True)
+
+            # Audio Playback
+            y_noisy_norm = y_noisy / np.max(np.abs(y_noisy)) if np.max(np.abs(y_noisy)) > 0 else y_noisy
+            buffer_noisy = io.BytesIO()
+            sf.write(buffer_noisy, y_noisy_norm, sr, format="WAV")
+            st.markdown("### 🎧 Listen to the Noisy Transmission")
+            st.audio(buffer_noisy.getvalue(), format="audio/wav")
+
+            # Educational Insight
+            if snr_db < 10:
+                st.error("⚠️ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
+            elif snr_db > 30:
+                st.success("🌟 **High SNR:** Excellent channel conditions! The signal is clear, supporting high-speed data transmission like HD video streaming or 5G networks.")
+            else:
+                st.info("💡 **Moderate SNR:** Standard communication quality. Notice how the channel capacity (kbps) reacts linearly to bandwidth but logarithmically to the signal-to-noise ratio!")
+
+  # ==========================================
+  # TAB 18: Data Export & PDF Report
+  # ==========================================
+  with tabs[17]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
