@@ -593,7 +593,8 @@ def main():
       "🔲 Chladni Resonance",
       "🎧 Active Noise Cancellation",
       "🏛️ 3D Room Acoustics",
-      "📶 Information Theory", # NEW VERSION 15 TAB
+      "📶 Information Theory",
+      "🛰️ Phased Array Beamforming", # NEW VERSION 16 TAB
       "📊 Data Export",
   ])
 
@@ -1870,7 +1871,90 @@ def main():
             st.info("💡 **Engineering Note:** In perfect theoretical conditions ($180^\circ$ phase, 100% amplitude match, 0ms delay), the audio cancels out to complete silence. Notice how even a 0.5ms delay (DSP Processing Latency) drastically ruins the cancellation, especially for high frequencies. This is why real ANC headphones need extremely fast microchips!")
 
   # ==========================================
-  # NEW TAB 17: Information Theory & SNR (Version 15.0)
+  # TAB 16: 3D Room Acoustics 
+  # ==========================================
+  with tabs[15]:
+    st.header("3D Room Acoustics & Standing Waves (Room Modes)")
+    st.markdown("Acoustic standing waves form between parallel walls in a room, creating resonant frequencies called **Room Modes**. This simulator calculates these modes using the Rayleigh formula and synthesizes the room's reverberation directly onto your voice via mathematical Convolution.")
+    
+    st.latex(r"f_{p,q,r} = \frac{c}{2} \sqrt{\left(\frac{p}{L}\right)^2 + \left(\frac{q}{W}\right)^2 + \left(\frac{r}{H}\right)^2}")
+
+    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+    room_L = col_r1.slider("Room Length (m)", 2.0, 30.0, 5.0, 0.1)
+    room_W = col_r2.slider("Room Width (m)", 2.0, 30.0, 4.0, 0.1)
+    room_H = col_r3.slider("Room Height (m)", 2.0, 15.0, 3.0, 0.1)
+    rt60_sim = col_r4.slider("Simulated RT60 Decay (s)", 0.1, 5.0, 1.2, 0.1)
+    
+    if st.button("Simulate Room Acoustics on Audio"):
+        with st.spinner("Calculating modes and convoluting room impulse response..."):
+            c_room = 343.0 # Standard speed of sound in air
+            
+            # 1. Calculate Room Modes (p, q, r up to 3)
+            modes = []
+            for p in range(4):
+                for q in range(4):
+                    for r in range(4):
+                        if p == 0 and q == 0 and r == 0:
+                            continue
+                        freq = (c_room / 2.0) * np.sqrt((p/room_L)**2 + (q/room_W)**2 + (r/room_H)**2)
+                        
+                        zeros = [p, q, r].count(0)
+                        if zeros == 2:
+                            mode_type = "Axial Mode"
+                        elif zeros == 1:
+                            mode_type = "Tangential Mode"
+                        else:
+                            mode_type = "Oblique Mode"
+                            
+                        modes.append({"p": p, "q": q, "r": r, "Frequency (Hz)": freq, "Type": mode_type})
+            
+            df_modes = pd.DataFrame(modes).sort_values("Frequency (Hz)").reset_index(drop=True)
+            df_modes = df_modes[df_modes["Frequency (Hz)"] <= 300] # Usually only matter below 300Hz
+            
+            # 2. Display the modes
+            st.success(f"Calculated {len(df_modes)} resonant standing waves (Room Modes) below 300 Hz for a {room_L}m x {room_W}m x {room_H}m room.")
+            
+            fig_modes = px.bar(df_modes, x="Frequency (Hz)", y="Type", color="Type", 
+                               title="Room Modes Distribution (< 300 Hz)", 
+                               orientation='h', template="plotly_dark",
+                               color_discrete_map={"Axial Mode": "#E91E63", "Tangential Mode": "#FF9800", "Oblique Mode": "#00BCD4"})
+            fig_modes.update_layout(height=300, margin=dict(l=0, r=0, b=0, t=40))
+            st.plotly_chart(fig_modes, use_container_width=True)
+            
+            # 3. Simulate Reverb via Convolution
+            # Generate exponential decay noise for Impulse Response
+            ir_length = int(rt60_sim * sr)
+            t_ir = np.arange(ir_length) / sr
+            
+            # Envelope decays by 60dB (-6.91 nepers) at t = rt60
+            decay_env = np.exp(-6.91 * t_ir / rt60_sim)
+            
+            # Add some frequency coloring based on room size (simple lowpass filter)
+            noise = np.random.randn(ir_length)
+            cutoff = max(500, min(8000, 15000 / (room_L * room_W * room_H / 100))) # Larger room = darker reverb
+            b, a = scipy.signal.butter(2, cutoff / (sr/2), btype='low')
+            colored_noise = scipy.signal.filtfilt(b, a, noise)
+            
+            rir = colored_noise * decay_env
+            rir = rir / np.max(np.abs(rir)) # Normalize Impulse Response
+            
+            # Convolve input audio with Room Impulse Response (RIR)
+            y_reverb = scipy.signal.fftconvolve(y, rir, mode='full')
+            
+            # Mix Dry / Wet
+            y_padded = np.pad(y, (0, len(y_reverb) - len(y))) # Pad original audio to match reverb tail length
+            wet_mix = 0.35 # 35% Reverb, 65% Original Voice
+            y_final = (1 - wet_mix) * y_padded + wet_mix * y_reverb
+            
+            y_final = y_final / np.max(np.abs(y_final)) # Normalize final audio to prevent clipping
+            
+            buffer_rev = io.BytesIO()
+            sf.write(buffer_rev, y_final, sr, format="WAV")
+            st.markdown(f"### 🎧 Listen to your voice inside the simulated room")
+            st.audio(buffer_rev.getvalue(), format="audio/wav")
+
+  # ==========================================
+  # TAB 17: Information Theory & SNR 
   # ==========================================
   with tabs[16]:
     st.header("Information Theory & Signal-to-Noise Ratio (SNR)")
@@ -1948,9 +2032,108 @@ def main():
                 st.info("💡 **Moderate SNR:** Standard communication quality. Notice how the channel capacity (kbps) reacts linearly to bandwidth but logarithmically to the signal-to-noise ratio!")
 
   # ==========================================
-  # TAB 18: Data Export & PDF Report
+  # NEW TAB 18: Phased Array Beamforming (Version 16.0)
   # ==========================================
   with tabs[17]:
+    st.header("Phased Array Beamforming Simulator")
+    st.markdown("In acoustics and telecommunications (like 5G or RADAR), a **Phased Array** steers a beam of waves in a specific direction *without moving any hardware*. It does this by precisely delaying the signal (Phase Shift) emitted from a grid of multiple speakers or antennas, causing constructive interference in the target direction.")
+    
+    st.latex(r"AF(\theta) = \frac{1}{N} \left| \frac{\sin(N \psi / 2)}{\sin(\psi / 2)} \right| \quad \text{where} \quad \psi = 2\pi \frac{d}{\lambda} (\sin\theta - \sin\theta_0)")
+
+    col_pa1, col_pa2, col_pa3 = st.columns(3)
+    N_sources = col_pa1.slider("Number of Sources (N)", 2, 32, 8, 1)
+    d_lambda = col_pa2.slider("Element Spacing ($d/\lambda$)", 0.1, 2.0, 0.5, 0.1)
+    steer_angle = col_pa3.slider("Steering Angle ($\theta_0$)", -90, 90, 30, 1)
+
+    if st.button("Simulate Beamforming"):
+        with st.spinner("Calculating spatial wave interference..."):
+            # 1. Array Factor (Polar Plot)
+            theta = np.linspace(-np.pi/2, np.pi/2, 1000)
+            steer_rad = np.deg2rad(steer_angle)
+            
+            # To avoid division by zero warnings
+            psi = 2 * np.pi * d_lambda * (np.sin(theta) - np.sin(steer_rad))
+            AF = np.zeros_like(psi)
+            
+            for i, p in enumerate(psi):
+                if p == 0:
+                    AF[i] = 1.0
+                else:
+                    AF[i] = np.abs(np.sin(N_sources * p / 2) / (N_sources * np.sin(p / 2)))
+
+            fig_polar = go.Figure(go.Scatterpolar(
+                r=AF,
+                theta=np.rad2deg(theta),
+                mode='lines',
+                fill='toself',
+                fillcolor='rgba(0, 188, 212, 0.2)',
+                line=dict(color='#00BCD4', width=2),
+                name="Beam Pattern"
+            ))
+            
+            fig_polar.update_layout(
+                title="Far-Field Directivity (Polar Pattern)",
+                polar=dict(
+                    sector=[-90, 90],
+                    angularaxis=dict(rotation=90, direction="clockwise"),
+                    radialaxis=dict(visible=False)
+                ),
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=40, r=40, b=40, t=60)
+            )
+            
+            # 2. 2D Spatial Wavefront Heatmap
+            x = np.linspace(-10, 10, 300)
+            y = np.linspace(0, 20, 300)
+            X, Y = np.meshgrid(x, y)
+            
+            Z = np.zeros_like(X, dtype=complex)
+            for n in range(N_sources):
+                # Position of n-th source along the X axis
+                x_n = (n - (N_sources - 1) / 2.0) * d_lambda
+                y_n = 0.0
+                
+                r_n = np.sqrt((X - x_n)**2 + (Y - y_n)**2)
+                r_n = np.where(r_n == 0, 1e-10, r_n) # avoid div by zero
+                
+                # Phase shift required to steer the beam
+                phase_shift = -2 * np.pi * d_lambda * n * np.sin(steer_rad)
+                
+                # Add cylindrical wave contribution (1/sqrt(r))
+                Z += np.exp(1j * (2 * np.pi * r_n + phase_shift)) / np.sqrt(r_n)
+            
+            Z_real = np.real(Z)
+            
+            fig_heat = go.Figure(data=go.Heatmap(
+                z=Z_real, x=x, y=y,
+                colorscale="RdBu",
+                zmid=0,
+                showscale=False
+            ))
+            
+            fig_heat.update_layout(
+                title="Near-Field Wavefront Interference (Spatial Heatmap)",
+                xaxis_title="Distance X (λ)",
+                yaxis_title="Distance Y (λ)",
+                template="plotly_dark",
+                height=500,
+                yaxis=dict(scaleanchor="x", scaleratio=1), # Keep aspect ratio 1:1
+                margin=dict(l=0, r=0, b=40, t=60)
+            )
+            
+            # Rendering in two columns
+            col_p1, col_p2 = st.columns([1, 1.2])
+            with col_p1:
+                st.plotly_chart(fig_polar, use_container_width=True)
+                st.info("💡 **Physics Insight:** Notice the primary large 'lobe' pointing exactly at your Steering Angle. If you make the Element Spacing ($d/\lambda$) too large (>0.5), you might see unwanted **Grating Lobes** appearing in other directions! This is why antenna spacing is so critical in 5G and Radars.")
+            with col_p2:
+                st.plotly_chart(fig_heat, use_container_width=True)
+
+  # ==========================================
+  # TAB 19: Data Export & PDF Report
+  # ==========================================
+  with tabs[18]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
