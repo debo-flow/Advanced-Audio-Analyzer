@@ -545,7 +545,7 @@ def main():
 
 
     st.divider()
-    st.markdown("### ⚙️️ System Info")
+    st.markdown("### ⚙ System Info")
     st.info(
         "Uses **Librosa** for extraction, **SciPy** for DSP, **PyWavelets** for"
         " CWT, and **Plotly** for interactive visualization."
@@ -650,13 +650,14 @@ def main():
       "📡 Wave Modulation",
       "🔲 Chladni Resonance",
       "🎧 Active Noise Cancellation",
-      "🏛️️ 3D Room Acoustics",
+      "🏛 3D Room Acoustics",
       "📶 Information Theory",
       "🛰️ Phased Array Beamforming",
       "🚀 Supersonic Shockwave", 
       "🌌 Uncertainty Principle",
       "👾 ADC & Quantization", 
-      "🎧 3D Spatial Audio & 8D Panning", # NEW VERSION 20 TAB
+      "🎧 3D Spatial Audio & 8D Panning", 
+      "🤫 Psychoacoustic Masking", # NEW VERSION 21 TAB
       "📊 Data Export",
   ])
 
@@ -2489,7 +2490,7 @@ def main():
             st.caption("💡 **Physics Insight:** In the frequency plot, the red dashed line is your new Nyquist limit. Notice how frequencies above this line 'fold back' into the lower frequencies as fake signals (Aliasing). Also notice the overall noise floor is raised significantly due to the Quantization Error!")
 
   # ==========================================
-  # NEW TAB 22: 3D Spatial Audio & 8D Panning (Version 20.0)
+  # TAB 22: 3D Spatial Audio & 8D Panning
   # ==========================================
   with tabs[21]:
     st.header("3D Spatial Audio & Binaural Panning (8D Audio)")
@@ -2589,9 +2590,124 @@ def main():
             st.plotly_chart(fig_radar, use_container_width=True)
 
   # ==========================================
-  # TAB 23: Data Export & PDF Report
+  # NEW TAB 23: Psychoacoustic Masking (Version 21.0)
   # ==========================================
   with tabs[22]:
+    st.header("Psychoacoustic Masking (MP3 Compression Physics)")
+    st.markdown("Why is an MP3 file 10 times smaller than a WAV file? The secret is **Frequency Masking**. Our human brain is easily tricked: if a loud sound (Masker) plays near a quiet sound (Target), our brain completely ignores the quiet sound. MP3 algorithms detect this and simply **delete** the quiet sound, saving massive file space!")
+    
+    st.info("🧠 **Listen & Test:** In this lab, we play a quiet **Target Tone**. Slowly move the loud **Masking Noise** closer to the target frequency and increase its volume. You will mathematically see the Target Tone on the screen, but your brain will stop hearing it!")
+
+    col_mask1, col_mask2 = st.columns(2)
+    
+    with col_mask1:
+        st.subheader("🎯 Target Tone (Quiet)")
+        target_freq = st.slider("Target Frequency (Hz)", 500.0, 4000.0, 2000.0, step=100.0)
+        target_amp_db = st.slider("Target Volume (dB)", -60.0, -10.0, -35.0, step=1.0)
+
+    with col_mask2:
+        st.subheader("🔊 Masking Noise (Loud)")
+        masker_freq = st.slider("Masker Center Frequency (Hz)", 500.0, 4000.0, 1000.0, step=100.0)
+        masker_amp_db = st.slider("Masker Volume (dB)", -40.0, 0.0, -5.0, step=1.0)
+
+    if st.button("Generate Masking Test Audio"):
+        with st.spinner("Synthesizing acoustic illusion..."):
+            sr_mask = 44100
+            dur_mask = 3.0
+            t_mask = np.linspace(0, dur_mask, int(sr_mask * dur_mask), endpoint=False)
+            
+            # 1. Generate Target (Pure Sine Wave)
+            amp_t_linear = 10 ** (target_amp_db / 20.0)
+            y_target = amp_t_linear * np.sin(2 * np.pi * target_freq * t_mask)
+            
+            # 2. Generate Masker (Narrowband Noise for better masking)
+            amp_m_linear = 10 ** (masker_amp_db / 20.0)
+            white_noise = np.random.randn(len(t_mask))
+            
+            # Apply tight bandpass filter to create narrowband noise
+            nyq = sr_mask / 2.0
+            low = max(50.0, masker_freq - 150) / nyq
+            high = min(nyq - 50.0, masker_freq + 150) / nyq
+            b, a = scipy.signal.butter(4, [low, high], btype='bandpass')
+            y_masker = scipy.signal.filtfilt(b, a, white_noise)
+            
+            # Normalize and scale masker
+            if np.max(np.abs(y_masker)) > 0:
+                y_masker = y_masker / np.max(np.abs(y_masker))
+            y_masker = y_masker * amp_m_linear
+            
+            # Combine Signals
+            y_combined = y_target + y_masker
+            
+            # Prevent master clipping
+            max_comb = np.max(np.abs(y_combined))
+            if max_comb > 1.0:
+                y_combined = y_combined / max_comb
+                
+            # --- Audio Playback ---
+            st.success("✅ Test Generated! Play the audio below.")
+            buffer_mask = io.BytesIO()
+            sf.write(buffer_mask, y_combined, sr_mask, format="WAV")
+            st.audio(buffer_mask.getvalue(), format="audio/wav")
+            
+            # --- FFT Plot ---
+            freqs_c, mag_c, mag_db_c = compute_fft(y_combined, sr_mask)
+            
+            valid_idx = freqs_c <= 5000 # Only plot up to 5kHz for clarity
+            f_plot = freqs_c[valid_idx]
+            m_plot = mag_db_c[valid_idx]
+            
+            # Create a theoretical Masking Threshold visual curve
+            # Rough approximation: drops ~15dB/Bark up, and ~25dB/Bark down. 
+            # For simple visual: linear drop-off in log-freq or simple triangular shape
+            mask_threshold = np.full_like(f_plot, -100.0) # start at -100 dB
+            
+            for i, f in enumerate(f_plot):
+                if f == 0: continue
+                ratio = f / masker_freq
+                if ratio >= 1:
+                    # Drop off smoothly towards higher frequencies
+                    drop = 30 * np.log10(ratio)
+                else:
+                    # Drop off sharply towards lower frequencies
+                    drop = -50 * np.log10(ratio)
+                mask_threshold[i] = masker_amp_db - drop - 10 # -10 offsets noise peak visually
+                
+            fig_mask = go.Figure()
+            fig_mask.add_trace(go.Scatter(x=f_plot, y=m_plot, mode='lines', line=dict(color='#00BCD4', width=1.5), name="Actual Audio Spectrum"))
+            
+            # Highlight Target Tone
+            fig_mask.add_vline(x=target_freq, line=dict(color='#1DB954', width=2, dash='dash'), annotation_text="Target Tone")
+            
+            # Add Theoretical Masking Curve
+            fig_mask.add_trace(go.Scatter(
+                x=f_plot, y=mask_threshold, mode='lines', 
+                fill='tozeroy', fillcolor='rgba(233, 30, 99, 0.2)',
+                line=dict(color='#E91E63', width=2), name="Theoretical Masking Threshold"
+            ))
+
+            fig_mask.update_layout(
+                title="Psychoacoustic Spectral Analysis",
+                xaxis_title="Frequency (Hz)",
+                yaxis_title="Magnitude (dB)",
+                template="plotly_dark",
+                height=450,
+                yaxis=dict(range=[-80, 5]),
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_mask, use_container_width=True)
+            
+            # Logic check for User
+            target_idx = np.argmin(np.abs(f_plot - target_freq))
+            if mask_threshold[target_idx] > target_amp_db:
+                st.error("🚨 **THE TARGET IS MASKED!** Look at the graph: the Target Tone (green line) is perfectly intact in the computer's memory, but because it falls under the pink 'Masking Threshold', your brain throws it away. MP3 would delete this tone!")
+            else:
+                st.success("✅ **THE TARGET IS VISIBLE & AUDIBLE!** The Target Tone is loud/far enough from the noise to be heard by human ears. Keep moving the Masker closer to the Target Frequency to see the illusion!")
+
+  # ==========================================
+  # TAB 24: Data Export & PDF Report
+  # ==========================================
+  with tabs[23]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
