@@ -545,7 +545,7 @@ def main():
 
 
     st.divider()
-    st.markdown("### ⚙ System Info")
+    st.markdown("### ⚙️ System Info")
     st.info(
         "Uses **Librosa** for extraction, **SciPy** for DSP, **PyWavelets** for"
         " CWT, and **Plotly** for interactive visualization."
@@ -657,7 +657,8 @@ def main():
       "🌌 Uncertainty Principle",
       "👾 ADC & Quantization", 
       "🎧 3D Spatial Audio & 8D Panning", 
-      "🤫 Psychoacoustic Masking", # NEW VERSION 21 TAB
+      "🤫 Psychoacoustic Masking",
+      "🛸 Acoustic Levitation", # NEW VERSION 22 TAB
       "📊 Data Export",
   ])
 
@@ -2345,7 +2346,7 @@ def main():
             
             with col_graph1:
                 st.plotly_chart(fig_time, use_container_width=True)
-                st.info(f"⏱️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
+                st.info(f"⏱️️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
 
             # Frequency Domain Plot (zoomed around center freq)
             f_idx = np.where((freqs > f_c - 1000) & (freqs < f_c + 1000))[0]
@@ -2590,7 +2591,7 @@ def main():
             st.plotly_chart(fig_radar, use_container_width=True)
 
   # ==========================================
-  # NEW TAB 23: Psychoacoustic Masking (Version 21.0)
+  # TAB 23: Psychoacoustic Masking
   # ==========================================
   with tabs[22]:
     st.header("Psychoacoustic Masking (MP3 Compression Physics)")
@@ -2705,9 +2706,80 @@ def main():
                 st.success("✅ **THE TARGET IS VISIBLE & AUDIBLE!** The Target Tone is loud/far enough from the noise to be heard by human ears. Keep moving the Masker closer to the Target Frequency to see the illusion!")
 
   # ==========================================
-  # TAB 24: Data Export & PDF Report
+  # NEW TAB 24: Acoustic Levitation (Version 22.0)
   # ==========================================
   with tabs[23]:
+    st.header("Acoustic Levitation (Standing Wave Physics)")
+    st.markdown("Sound exerts actual physical pressure. By aiming two identical ultrasonic transducers at each other, we create a **Standing Wave**. The exact points where the waves cancel each other out are called **Nodes**. The Acoustic Radiation Force pushes small objects (like water drops or styrofoam) into these nodes, suspending them in mid-air against gravity!")
+    
+    st.latex(r"F_{rad} = \frac{5\pi}{6} \frac{P_0^2}{\rho c^2} R^3 k \sin(2kz)")
+    
+    col_lev1, col_lev2, col_lev3 = st.columns(3)
+    lev_freq = col_lev1.slider("Transducer Frequency (Hz)", 20000.0, 50000.0, 40000.0, 1000.0, help="Human hearing stops at 20kHz. 40kHz is standard for levitators.")
+    lev_dist_cm = col_lev2.slider("Transducer Distance (cm)", 2.0, 10.0, 4.28, 0.01)
+    spl_db = col_lev3.slider("Sound Pressure Level (SPL dB)", 140, 170, 160, 1, help="Normal talking is 60dB. 160dB is a jet engine (but at ultrasound, we can't hear it!).")
+
+    if st.button("Calculate Levitation Field"):
+        with st.spinner("Calculating acoustic radiation pressure field..."):
+            c_air = 343.0 # Speed of sound m/s
+            rho_air = 1.225 # Density of air kg/m^3
+            
+            wavelength = c_air / lev_freq # Lambda
+            k = 2 * np.pi / wavelength # Wave number
+            
+            # Convert SPL (dB) to Pascal (Pressure)
+            p_ref = 2e-5 # 20 micropascals
+            p_0 = p_ref * (10 ** (spl_db / 20.0))
+            
+            # Theoretical max particle radius (r < lambda/3 for stable levitation)
+            max_radius = wavelength / 3.0
+            
+            # 1D Standing Wave Profile along Z axis
+            z_m = np.linspace(0, lev_dist_cm / 100.0, 500)
+            
+            # Pressure standing wave P(z) = P0 * cos(k*z)
+            p_z = p_0 * np.cos(k * z_m)
+            
+            # Acoustic Potential U(z) is proportional to P(z)^2
+            # Particles are trapped in the minima of the potential (Pressure Nodes)
+            acoustic_potential = p_z**2
+            
+            # Find Nodes (where U(z) is minimum, essentially 0)
+            # Find local minima indices
+            node_indices = scipy.signal.argrelextrema(acoustic_potential, np.less)[0]
+            node_z = z_m[node_indices]
+            
+            # Visualize the Pressure Field and Trapping Nodes
+            fig_lev = go.Figure()
+            
+            # Plot Absolute Pressure
+            fig_lev.add_trace(go.Scatter(x=z_m*100, y=np.abs(p_z), mode='lines', line=dict(color='rgba(0, 188, 212, 0.6)', width=2), fill='tozeroy', name='Acoustic Pressure Envelope'))
+            
+            # Plot Trapping Nodes
+            fig_lev.add_trace(go.Scatter(x=node_z*100, y=np.zeros_like(node_z), mode='markers', marker=dict(color='#E91E63', size=15, symbol='diamond'), name='Levitation Trap (Node)'))
+
+            fig_lev.update_layout(
+                title=f"Acoustic Levitation Field ({lev_freq/1000:.1f} kHz) - Distance: {lev_dist_cm} cm",
+                xaxis_title="Vertical Distance Z (cm)",
+                yaxis_title="Acoustic Pressure (Pascals)",
+                template="plotly_dark",
+                height=450,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_lev, use_container_width=True)
+            
+            # Provide Engineering Metrics
+            col_metric1, col_metric2, col_metric3 = st.columns(3)
+            col_metric1.info(f"📏 **Wavelength ($\lambda$):** {wavelength*1000:.2f} mm")
+            col_metric2.info(f"🎯 **Node Spacing ($\lambda/2$):** {(wavelength/2)*1000:.2f} mm")
+            col_metric3.success(f"🔴 **Max Object Radius:** {max_radius*1000:.2f} mm")
+            
+            st.markdown(f"**Found {len(node_z)} stable levitation points.** To levitate heavier objects like water droplets, you need an SPL of around **160 dB** (which corresponds to {p_0:.0f} Pascals of raw physical pressure!). Since {lev_freq/1000:.1f} kHz is ultrasound, this jet-engine level sound won't deafen human ears, but it has enough physical momentum to fight gravity!")
+
+  # ==========================================
+  # TAB 25: Data Export & PDF Report
+  # ==========================================
+  with tabs[24]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
