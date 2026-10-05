@@ -423,7 +423,7 @@ def main():
       if audio_recorder is None:
           st.error("Please install the required library: `pip install audio-recorder-streamlit`")
       else:
-          st.markdown("### 🎙️️ Live Recording")
+          st.markdown("### 🎙️ Live Recording")
           st.info("Click the microphone icon to start/stop recording.")
           recorded_audio = audio_recorder(text="", recording_color="#E91E63", neutral_color="#1DB954")
           if recorded_audio:
@@ -596,7 +596,8 @@ def main():
       "📶 Information Theory",
       "🛰️ Phased Array Beamforming",
       "🚀 Supersonic Shockwave", 
-      "🌌 Uncertainty Principle", # NEW VERSION 18 TAB
+      "🌌 Uncertainty Principle",
+      "👾 ADC & Quantization", # NEW VERSION 19 TAB
       "📊 Data Export",
   ])
 
@@ -2027,7 +2028,7 @@ def main():
 
             # Educational Insight
             if snr_db < 10:
-                st.error("⚠ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
+                st.error("⚠️ **Low SNR:** The noise is overwhelming the signal. According to Shannon's theorem, the theoretical data transfer rate drops significantly, causing internet lag or static-filled telecom calls.")
             elif snr_db > 30:
                 st.success("🌟 **High SNR:** Excellent channel conditions! The signal is clear, supporting high-speed data transmission like HD video streaming or 5G networks.")
             else:
@@ -2225,7 +2226,7 @@ def main():
               st.latex(r"\sin(\theta) = \frac{c}{v} = \frac{1}{\text{Mach Number (M)}}")
 
   # ==========================================
-  # NEW TAB 20: Uncertainty Principle (Version 18.0)
+  # TAB 20: Uncertainty Principle
   # ==========================================
   with tabs[19]:
     st.header("The Acoustic Uncertainty Principle (Gabor Limit)")
@@ -2313,9 +2314,125 @@ def main():
                 st.audio(buffer_gabor.getvalue(), format="audio/wav")
 
   # ==========================================
-  # TAB 21: Data Export & PDF Report
+  # NEW TAB 21: ADC & Quantization (Version 19.0)
   # ==========================================
   with tabs[20]:
+    st.header("Analog-to-Digital Conversion (ADC)")
+    st.markdown("Digital devices cannot process smooth, continuous sound waves. They must digitize the signal through two steps: **Sampling** (taking snapshots over time) and **Quantization** (rounding the volume to specific bit levels). Doing this poorly results in *Aliasing* and *Quantization Noise*.")
+
+    col_adc1, col_adc2 = st.columns(2)
+    
+    target_sr = col_adc1.select_slider(
+        "Sampling Rate (Time Resolution)", 
+        options=[1000, 2000, 4000, 8000, 11025, 22050, 44100], 
+        value=8000,
+        help="Lowering the sample rate removes high frequencies. Below the Nyquist limit, high frequencies fold back as 'Aliasing' noise."
+    )
+    
+    target_bits = col_adc2.select_slider(
+        "Bit Depth (Amplitude Resolution)", 
+        options=[2, 3, 4, 8, 16], 
+        value=4,
+        help="Lowering bit depth creates 'staircase' waveforms, adding aggressive Quantization Noise (sounds like 8-bit retro games)."
+    )
+
+    if st.button("Digitize & Crunch Audio"):
+        with st.spinner("Applying Zero-Order Hold Sampling & Quantization..."):
+            
+            # --- 1. Downsampling (Zero-Order Hold for visual stair-stepping) ---
+            factor = max(1, int(sr / target_sr))
+            y_sampled = y[::factor]
+            # Hold the value to match original length (ZOH approximation)
+            y_zoh = np.repeat(y_sampled, factor)
+            # Trim or pad slightly if length mismatch due to division
+            if len(y_zoh) > len(y):
+                y_zoh = y_zoh[:len(y)]
+            else:
+                y_zoh = np.pad(y_zoh, (0, len(y) - len(y_zoh)), mode='edge')
+            
+            # --- 2. Quantization (Bit-Crushing) ---
+            # Normalize between -1 and 1
+            y_norm = y_zoh / np.max(np.abs(y_zoh)) if np.max(np.abs(y_zoh)) > 0 else y_zoh
+            levels = 2 ** target_bits
+            
+            # Scale, Round, and Unscale
+            y_quantized = np.round(y_norm * (levels / 2.0 - 1.0)) / (levels / 2.0 - 1.0)
+            
+            # --- Calculating Quantization Error (Noise) ---
+            q_error = y_norm - y_quantized
+            
+            # --- Audio Playback ---
+            st.success(f"🎛️ **ADC Complete:** Converted to {target_sr} Hz / {target_bits}-bit audio.")
+            
+            col_play1, col_play2 = st.columns(2)
+            with col_play1:
+                st.markdown("**1. Quantized Output (What the computer saves):**")
+                buffer_q = io.BytesIO()
+                sf.write(buffer_q, y_quantized, sr, format="WAV") # Play at original SR to hear ZOH effect
+                st.audio(buffer_q.getvalue(), format="audio/wav")
+            with col_play2:
+                st.markdown("**2. Quantization Noise (What was lost/added):**")
+                buffer_err = io.BytesIO()
+                sf.write(buffer_err, q_error, sr, format="WAV")
+                st.audio(buffer_err.getvalue(), format="audio/wav")
+
+            # --- Plotting the waveforms ---
+            st.subheader("Time Domain: The 'Staircase' Effect")
+            st.info("Zoom in to see how the smooth analog wave is chopped into discrete digital blocks.")
+            
+            # Plot only a tiny fraction (e.g., 10 ms) to clearly see the steps
+            plot_dur = 0.01 
+            plot_samples = int(sr * plot_dur)
+            plot_samples = min(plot_samples, len(y))
+            
+            t_plot = np.linspace(0, plot_dur, plot_samples, endpoint=False)
+            y_orig_plot = y_norm[:plot_samples]
+            y_q_plot = y_quantized[:plot_samples]
+            
+            fig_adc = go.Figure()
+            fig_adc.add_trace(go.Scatter(x=t_plot*1000, y=y_orig_plot, mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)', width=2), name='Analog (Smooth)'))
+            fig_adc.add_trace(go.Scatter(x=t_plot*1000, y=y_q_plot, mode='lines', line=dict(color='#E91E63', width=2, shape='hv'), name=f'Digital ({target_bits}-bit)'))
+            
+            fig_adc.update_layout(
+                xaxis_title="Time (ms)",
+                yaxis_title="Normalized Amplitude",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_adc, use_container_width=True)
+
+            # --- Plotting FFT Aliasing ---
+            st.subheader("Frequency Domain: Aliasing & Noise Floor")
+            
+            freqs_orig, mag_orig, mag_db_orig = compute_fft(y_norm, sr)
+            freqs_q, mag_q, mag_db_q = compute_fft(y_quantized, sr) # Analyze the ZOH signal to see aliasing
+            
+            valid_idx = freqs_orig <= (sr / 2.0)
+            f_orig_p, m_orig_p = downsample_fft(freqs_orig[valid_idx], mag_db_orig[valid_idx], 5000)
+            f_q_p, m_q_p = downsample_fft(freqs_q[valid_idx], mag_db_q[valid_idx], 5000)
+            
+            fig_fft_adc = go.Figure()
+            fig_fft_adc.add_trace(go.Scatter(x=f_orig_p, y=m_orig_p, mode='lines', line=dict(color='rgba(255, 255, 255, 0.4)', width=1), name='Original Spectrum'))
+            fig_fft_adc.add_trace(go.Scatter(x=f_q_p, y=m_q_p, mode='lines', line=dict(color='#00BCD4', width=1.5), name='Quantized Spectrum'))
+            
+            fig_fft_adc.add_vline(x=target_sr/2.0, line=dict(color='red', width=2, dash='dash'), annotation_text=f"Nyquist Limit ({target_sr/2} Hz)")
+            
+            fig_fft_adc.update_layout(
+                xaxis_title="Frequency (Hz)",
+                yaxis_title="Magnitude (dB)",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_fft_adc, use_container_width=True)
+            
+            st.caption("💡 **Physics Insight:** In the frequency plot, the red dashed line is your new Nyquist limit. Notice how frequencies above this line 'fold back' into the lower frequencies as fake signals (Aliasing). Also notice the overall noise floor is raised significantly due to the Quantization Error!")
+
+  # ==========================================
+  # TAB 22: Data Export & PDF Report
+  # ==========================================
+  with tabs[21]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
