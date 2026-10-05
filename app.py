@@ -419,32 +419,76 @@ def apply_granular_synthesis(y: np.ndarray, sr: int, grain_size_ms: float, stret
         
     return y_out
 
-# --- NEW: NON-LINEAR DISTORTION FUNCTION (Version 24.0) ---
+
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def apply_distortion(y: np.ndarray, dist_type: str, drive: float) -> np.ndarray:
     """Applies non-linear analog distortion, saturation, or wavefolding to the signal."""
-    # Scale signal by drive (Gain)
     y_driven = y * drive
     
     if dist_type == "Soft Clipping (Vacuum Tube)":
-        # Tanh provides smooth analog-style soft clipping
         y_out = np.tanh(y_driven) / np.tanh(drive) if drive > 0 else y
     elif dist_type == "Hard Clipping (Transistor Fuzz)":
-        # Harsh digital/transistor clipping at -1 and +1
         y_out = np.clip(y_driven, -1.0, 1.0)
     elif dist_type == "Sine Wavefolding (Buchla Synth)":
-        # Folds the wave back on itself continuously instead of clipping
         y_out = np.sin(y_driven * np.pi / 2)
     else: # Triangle Wavefolding
-        # Hard zigzag folding
         y_out = (2 / np.pi) * np.arcsin(np.sin(y_driven * np.pi / 2))
         
-    # Normalize output to prevent deafening volume jumps, but preserve the new shape
     max_val = np.max(np.abs(y_out))
     if max_val > 0:
         y_out = y_out / max_val
         
     return y_out
+
+
+# --- NEW: PHASE VOCODER & CROSS-SYNTHESIS (Version 25.0) ---
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_cross_synthesis(y_mod: np.ndarray, sr: int, carrier_type: str, carrier_freq: float) -> np.ndarray:
+    """Applies Spectral Cross-Synthesis (Vocoder) between a voice modulator and a generated carrier."""
+    t = np.arange(len(y_mod)) / sr
+    
+    # 1. Generate Carrier Wave
+    if carrier_type == "Sawtooth Wave":
+        y_car = scipy.signal.sawtooth(2 * np.pi * carrier_freq * t)
+    elif carrier_type == "Square Wave":
+        y_car = scipy.signal.square(2 * np.pi * carrier_freq * t)
+    elif carrier_type == "Synth Chord (Minor 7th)":
+        f_r = carrier_freq
+        f_m3 = carrier_freq * (2 ** (3/12))
+        f_p5 = carrier_freq * (2 ** (7/12))
+        f_m7 = carrier_freq * (2 ** (10/12))
+        y_car = (scipy.signal.sawtooth(2 * np.pi * f_r * t) +
+                 scipy.signal.sawtooth(2 * np.pi * f_m3 * t) +
+                 scipy.signal.sawtooth(2 * np.pi * f_p5 * t) +
+                 scipy.signal.sawtooth(2 * np.pi * f_m7 * t)) / 4.0
+    else: # White Noise (Whisper effect)
+        y_car = np.random.randn(len(y_mod))
+        
+    # 2. Short-Time Fourier Transform (STFT)
+    n_fft = 2048
+    hop_length = 512
+    S_mod = librosa.stft(y_mod, n_fft=n_fft, hop_length=hop_length)
+    S_car = librosa.stft(y_car, n_fft=n_fft, hop_length=hop_length)
+    
+    # 3. Spectral Cross-Synthesis (Impose Modulator Envelope onto Carrier)
+    mag_mod = np.abs(S_mod)
+    mag_car = np.abs(S_car)
+    phase_car = np.angle(S_car)
+    
+    # The Vocoder Equation: Multiply Magnitudes + Keep Carrier Phase
+    mag_out = mag_mod * (mag_car / (np.max(mag_car) + 1e-10))
+    S_out = mag_out * np.exp(1j * phase_car)
+    
+    # 4. Inverse STFT
+    y_out = librosa.istft(S_out, hop_length=hop_length, length=len(y_mod))
+    
+    # 5. Normalize
+    max_val = np.max(np.abs(y_out))
+    if max_val > 0:
+        y_out /= max_val
+        
+    return y_out
+
 
 # --- PSYCHOACOUSTICS FUNCTIONS (Version 4.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
@@ -720,7 +764,8 @@ def main():
       "🤫 Psychoacoustic Masking",
       "🛸 Acoustic Levitation", 
       "⚛️ Granular Synthesis", 
-      "🎸 Analog Saturation", # NEW VERSION 24 TAB
+      "🎸 Analog Saturation", 
+      "🤖 Phase Vocoder", # NEW VERSION 25 TAB
       "📊 Data Export",
   ])
 
@@ -2408,7 +2453,7 @@ def main():
             
             with col_graph1:
                 st.plotly_chart(fig_time, use_container_width=True)
-                st.info(f"⏱️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
+                st.info(f"⏱️️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
 
             # Frequency Domain Plot (zoomed around center freq)
             f_idx = np.where((freqs > f_c - 1000) & (freqs < f_c + 1000))[0]
@@ -2882,7 +2927,7 @@ def main():
             st.info("💡 **Physics Insight:** Because we slice the audio into independent 'quanta' and apply a mathematical **Hanning window** (to prevent sharp clicking edges), we can spread these grains further apart in time. This creates a time-stretched sound that perfectly preserves the original pitch! It proves that time and frequency can be mathematically decoupled using granular structures.")
 
   # ==========================================
-  # NEW TAB 26: Analog Saturation & Wavefolding (Version 24.0)
+  # TAB 26: Analog Saturation
   # ==========================================
   with tabs[25]:
     st.header("Non-Linear Wavefolding & Saturation (Analog Physics)")
@@ -2984,9 +3029,62 @@ def main():
             st.info("💡 **Physics Insight:** Look at the yellow Frequency Spectrum. The original audio (blue) had only a few natural frequencies. But because clipping/wavefolding changes the physical shape of the wave (making it squarish or zigzag), Joseph Fourier's math dictates that **brand new high-frequency harmonics** must be born! This is what gives electric guitars and analog synthesizers their aggressive, warm, or metallic 'crunch'.")
 
   # ==========================================
-  # TAB 27: Data Export & PDF Report
+  # NEW TAB 27: Phase Vocoder & Cross-Synthesis (Version 25.0)
   # ==========================================
   with tabs[26]:
+    st.header("Phase Vocoder & Spectral Cross-Synthesis")
+    st.markdown("Want to sound like a **Daft Punk** robot? The Phase Vocoder is a pinnacle of digital signal processing. It uses the Short-Time Fourier Transform (STFT) to map the exact shape of your voice's frequencies (the *Modulator*), and then mathematically multiplies that shape onto the rich, buzzing spectrum of a synthesizer (the *Carrier*).")
+    
+    st.info("🎙️ **Instruction:** Record your voice speaking normally (e.g., 'Hello, I am a robot'). Then select a Carrier Synth below and click synthesize!")
+    
+    col_voc1, col_voc2 = st.columns(2)
+    carrier_type = col_voc1.selectbox("Carrier Synth Waveform", ["Sawtooth Wave", "Square Wave", "Synth Chord (Minor 7th)", "White Noise (Whisper)"])
+    carrier_freq = col_voc2.slider("Carrier Fundamental Pitch (Hz)", 50.0, 500.0, 110.0, 10.0, help="110Hz is A2 (deep male robot). Try 220Hz for a higher pitch.")
+
+    if st.button("Synthesize Vocoder Effect", type="primary"):
+        with st.spinner("Executing Phase Vocoder STFT Cross-Synthesis..."):
+            
+            # Run the heavy math
+            y_vocoded = apply_cross_synthesis(y, sr, carrier_type, carrier_freq)
+            
+            st.success("🤖 **Vocoder Synthesis Complete!** Listen to your new robotic voice:")
+            
+            buffer_voc = io.BytesIO()
+            sf.write(buffer_voc, y_vocoded, sr, format="WAV")
+            st.audio(buffer_voc.getvalue(), format="audio/wav")
+            
+            st.divider()
+            st.subheader("Spectral Envelope Cross-Multiplication")
+            st.markdown("This graph proves what just happened. The **blue** area is the flat, continuous frequency of the Carrier Synth. The **red** area is the shape of your voice. The algorithm literally *carved* the shape of your voice out of the synth's block of sound!")
+            
+            # Let's plot the Welch PSD of original voice vs vocoded output
+            f_orig, p_orig = compute_welch_psd(y, sr, nperseg=2048)
+            f_voc, p_voc = compute_welch_psd(y_vocoded, sr, nperseg=2048)
+            
+            if len(f_orig) > 0 and len(f_voc) > 0:
+                valid_idx = f_orig <= 5000 # Show up to 5kHz where the voice lives
+                f_p_o, p_p_o = downsample_fft(f_orig[valid_idx], p_orig[valid_idx], 3000)
+                f_p_v, p_p_v = downsample_fft(f_voc[valid_idx], p_voc[valid_idx], 3000)
+                
+                fig_voc = go.Figure()
+                fig_voc.add_trace(go.Scatter(x=f_p_o, y=p_p_o, mode='lines', line=dict(color='rgba(233, 30, 99, 0.4)', width=2), fill='tozeroy', name='Your Voice Envelope (Modulator)'))
+                fig_voc.add_trace(go.Scatter(x=f_p_v, y=p_p_v, mode='lines', line=dict(color='#00BCD4', width=2), name='Vocoded Synth (Carrier)'))
+                
+                fig_voc.update_layout(
+                    xaxis_title="Frequency (Hz)",
+                    yaxis_title="Power Density (dB)",
+                    template="plotly_dark",
+                    height=400,
+                    margin=dict(l=0, r=0, b=0, t=20)
+                )
+                st.plotly_chart(fig_voc, use_container_width=True)
+            
+            st.latex(r"\text{S}_{out}(f, t) = \left|\text{S}_{voice}(f, t)\right| \times \left|\text{S}_{synth}(f, t)\right| \cdot e^{i \angle \text{S}_{synth}(f, t)}")
+
+  # ==========================================
+  # TAB 28: Data Export & PDF Report
+  # ==========================================
+  with tabs[27]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
