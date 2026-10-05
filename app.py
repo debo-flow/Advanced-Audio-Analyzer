@@ -328,6 +328,64 @@ def apply_doppler_effect(
   return y_obs * amplitude_envelope
 
 
+# --- NEW: BINAURAL 3D AUDIO FUNCTION (Version 20.0) ---
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_3d_spatial_audio(y: np.ndarray, sr: int, mode: str, static_angle: float, radius: float, rot_hz: float, c: float = 343.0) -> np.ndarray:
+    """Applies Interaural Time Difference (ITD) and Level Difference (ILD) for Binaural Panning."""
+    T = np.arange(len(y)) / sr
+    head_radius = 0.0875  # Average human head radius (8.75 cm)
+    
+    if mode == "Static 3D Position":
+        theta = np.deg2rad(static_angle)
+        theta_array = np.full_like(T, theta)
+    else:
+        # 8D Auto-Rotation
+        theta_array = 2 * np.pi * rot_hz * T
+
+    # Source Cartesian Coordinates
+    x_s = radius * np.sin(theta_array)
+    y_s = radius * np.cos(theta_array)
+    
+    # Ear Coordinates (Left Ear at -x, Right Ear at +x)
+    x_L, y_L = -head_radius, 0.0
+    x_R, y_R = head_radius, 0.0
+    
+    # Distance to each ear
+    d_L = np.sqrt((x_s - x_L)**2 + (y_s - y_L)**2)
+    d_R = np.sqrt((x_s - x_R)**2 + (y_s - y_R)**2)
+    
+    # ITD: Delays
+    delay_L = d_L / c
+    delay_R = d_R / c
+    
+    # Interpolate delayed signals (Doppler shifts naturally handled here)
+    y_L = np.interp(T - delay_L, T, y, left=0, right=0)
+    y_R = np.interp(T - delay_R, T, y, left=0, right=0)
+    
+    # ILD: Head Shadowing & Inverse Square Law Gain
+    # Calculate angle relative to each ear's "line of sight"
+    cos_alpha_L = -x_s / np.sqrt(x_s**2 + y_s**2 + 1e-10)
+    cos_alpha_R = x_s / np.sqrt(x_s**2 + y_s**2 + 1e-10)
+    
+    # Simple shadow factor: louder when facing the ear, quieter when blocked by the head
+    shadow_L = 0.6 + 0.4 * cos_alpha_L
+    shadow_R = 0.6 + 0.4 * cos_alpha_R
+    
+    gain_L = (1.0 / d_L) * shadow_L
+    gain_R = (1.0 / d_R) * shadow_R
+    
+    y_L *= gain_L
+    y_R *= gain_R
+    
+    # Normalize stereo matrix to avoid clipping while preserving panning ratio
+    max_val = max(np.max(np.abs(y_L)), np.max(np.abs(y_R)))
+    if max_val > 0:
+        y_L /= max_val
+        y_R /= max_val
+        
+    return np.vstack((y_L, y_R)).T # Shape [samples, 2] for Stereo WAV
+
+
 # --- PSYCHOACOUSTICS FUNCTIONS (Version 4.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def compute_mel_spec(y: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -487,7 +545,7 @@ def main():
 
 
     st.divider()
-    st.markdown("### ⚙️ System Info")
+    st.markdown("### ⚙️️ System Info")
     st.info(
         "Uses **Librosa** for extraction, **SciPy** for DSP, **PyWavelets** for"
         " CWT, and **Plotly** for interactive visualization."
@@ -592,12 +650,13 @@ def main():
       "📡 Wave Modulation",
       "🔲 Chladni Resonance",
       "🎧 Active Noise Cancellation",
-      "🏛️ 3D Room Acoustics",
+      "🏛️️ 3D Room Acoustics",
       "📶 Information Theory",
       "🛰️ Phased Array Beamforming",
       "🚀 Supersonic Shockwave", 
       "🌌 Uncertainty Principle",
-      "👾 ADC & Quantization", # NEW VERSION 19 TAB
+      "👾 ADC & Quantization", 
+      "🎧 3D Spatial Audio & 8D Panning", # NEW VERSION 20 TAB
       "📊 Data Export",
   ])
 
@@ -2314,7 +2373,7 @@ def main():
                 st.audio(buffer_gabor.getvalue(), format="audio/wav")
 
   # ==========================================
-  # NEW TAB 21: ADC & Quantization (Version 19.0)
+  # TAB 21: ADC & Quantization
   # ==========================================
   with tabs[20]:
     st.header("Analog-to-Digital Conversion (ADC)")
@@ -2430,9 +2489,109 @@ def main():
             st.caption("💡 **Physics Insight:** In the frequency plot, the red dashed line is your new Nyquist limit. Notice how frequencies above this line 'fold back' into the lower frequencies as fake signals (Aliasing). Also notice the overall noise floor is raised significantly due to the Quantization Error!")
 
   # ==========================================
-  # TAB 22: Data Export & PDF Report
+  # NEW TAB 22: 3D Spatial Audio & 8D Panning (Version 20.0)
   # ==========================================
   with tabs[21]:
+    st.header("3D Spatial Audio & Binaural Panning (8D Audio)")
+    st.markdown("Transform any standard mono recording into a **true 3D spatial experience**. This engine computes the physical delays (**Interaural Time Difference - ITD**) and head-shadowing volume drops (**Interaural Level Difference - ILD**) mathematically required to trick your brain into hearing sound from specific 3D directions.")
+    
+    st.warning("🎧 **HEADPHONES REQUIRED:** This binaural physics simulation will NOT work correctly through regular speakers due to left/right channel crosstalk.")
+    
+    col_3d1, col_3d2 = st.columns(2)
+    
+    spatial_mode = col_3d1.radio("Spatial Mode", ["Static 3D Position", "8D Auto-Rotation (Revolving)"])
+    source_dist = col_3d2.slider("Source Distance (meters)", 0.5, 5.0, 1.0, 0.1)
+    
+    if spatial_mode == "Static 3D Position":
+        static_angle = st.slider("Sound Angle (Degrees)", 0, 360, 90, help="0° = Front, 90° = Right Ear, 180° = Back, 270° = Left Ear")
+        rot_hz = 0.0
+    else:
+        rot_hz = st.slider("Rotation Speed (Revolutions per sec)", 0.1, 2.0, 0.5, 0.1, help="How fast the sound revolves around your head.")
+        static_angle = 0.0
+        
+    if st.button("Synthesize 3D Binaural Audio"):
+        with st.spinner("Calculating Interaural Time & Level Differences (ITD/ILD)..."):
+            
+            # Generate the Stereo 3D Array
+            stereo_3d = apply_3d_spatial_audio(y, sr, spatial_mode, static_angle, source_dist, rot_hz)
+            
+            # --- 1. Audio Playback ---
+            st.success("✅ **3D Synthesis Complete! Put on your headphones and listen:**")
+            
+            buffer_3d = io.BytesIO()
+            # Write exactly as a 2-channel stereo WAV
+            sf.write(buffer_3d, stereo_3d, sr, format="WAV")
+            st.audio(buffer_3d.getvalue(), format="audio/wav")
+            
+            # --- 2. Visualizing the Stereo Difference ---
+            st.subheader("Waveform Analysis: ITD & ILD")
+            st.markdown("Zoom in closely to see the exact millisecond delays and amplitude differences between your left and right ear.")
+            
+            # Get a small 50ms snippet for clear visualization
+            plot_samples = min(int(sr * 0.05), len(stereo_3d))
+            t_plot = np.linspace(0, 0.05, plot_samples, endpoint=False)
+            
+            # Extract Left and Right channels for the plot
+            y_L_plot = stereo_3d[:plot_samples, 0]
+            y_R_plot = stereo_3d[:plot_samples, 1]
+            
+            fig_3d_wave = go.Figure()
+            fig_3d_wave.add_trace(go.Scatter(x=t_plot*1000, y=y_L_plot, mode='lines', line=dict(color='#00BCD4', width=2), name="Left Ear"))
+            fig_3d_wave.add_trace(go.Scatter(x=t_plot*1000, y=y_R_plot, mode='lines', line=dict(color='#E91E63', width=2), name="Right Ear"))
+            
+            fig_3d_wave.update_layout(
+                xaxis_title="Time (ms)",
+                yaxis_title="Amplitude",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+            st.plotly_chart(fig_3d_wave, use_container_width=True)
+            
+            # --- 3. Spatial Radar Visualization ---
+            st.subheader("Spatial Radar Plot")
+            
+            fig_radar = go.Figure()
+            
+            # Add Head (Center)
+            fig_radar.add_trace(go.Scatter(x=[0], y=[0], mode='markers+text', text=["👤 Head"], textposition="bottom center", marker=dict(size=20, color='white'), name='You'))
+            # Add Left Ear
+            fig_radar.add_trace(go.Scatter(x=[-0.0875], y=[0], mode='markers', marker=dict(size=10, color='#00BCD4'), name='Left Ear'))
+            # Add Right Ear
+            fig_radar.add_trace(go.Scatter(x=[0.0875], y=[0], mode='markers', marker=dict(size=10, color='#E91E63'), name='Right Ear'))
+            
+            if spatial_mode == "Static 3D Position":
+                # Add Static Source
+                theta_rad = np.deg2rad(static_angle)
+                x_s = source_dist * np.sin(theta_rad)
+                y_s = source_dist * np.cos(theta_rad)
+                fig_radar.add_trace(go.Scatter(x=[x_s], y=[y_s], mode='markers+text', text=["🔊 Source"], textposition="top center", marker=dict(size=15, color='#1DB954'), name='Sound Source'))
+                
+                # Draw lines from source to ears
+                fig_radar.add_trace(go.Scatter(x=[x_s, -0.0875], y=[y_s, 0], mode='lines', line=dict(color='#00BCD4', width=1, dash='dot'), showlegend=False))
+                fig_radar.add_trace(go.Scatter(x=[x_s, 0.0875], y=[y_s, 0], mode='lines', line=dict(color='#E91E63', width=1, dash='dot'), showlegend=False))
+            else:
+                # Add Orbital Path for 8D
+                orbit_theta = np.linspace(0, 2*np.pi, 100)
+                x_orbit = source_dist * np.sin(orbit_theta)
+                y_orbit = source_dist * np.cos(orbit_theta)
+                fig_radar.add_trace(go.Scatter(x=x_orbit, y=y_orbit, mode='lines', line=dict(color='#1DB954', width=2, dash='dash'), name='8D Trajectory'))
+                fig_radar.add_trace(go.Scatter(x=[0], y=[source_dist], mode='markers+text', text=["🔊 Moving Source"], textposition="top right", marker=dict(size=15, color='#1DB954'), showlegend=False))
+                
+            axis_limit = source_dist * 1.2
+            fig_radar.update_layout(
+                xaxis=dict(range=[-axis_limit, axis_limit], zeroline=True, showgrid=False),
+                yaxis=dict(range=[-axis_limit, axis_limit], zeroline=True, showgrid=False, scaleanchor="x", scaleratio=1),
+                template="plotly_dark",
+                height=500,
+                width=500
+            )
+            st.plotly_chart(fig_radar, use_container_width=True)
+
+  # ==========================================
+  # TAB 23: Data Export & PDF Report
+  # ==========================================
+  with tabs[22]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
