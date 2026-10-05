@@ -328,7 +328,6 @@ def apply_doppler_effect(
   return y_obs * amplitude_envelope
 
 
-# --- NEW: BINAURAL 3D AUDIO FUNCTION (Version 20.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def apply_3d_spatial_audio(y: np.ndarray, sr: int, mode: str, static_angle: float, radius: float, rot_hz: float, c: float = 343.0) -> np.ndarray:
     """Applies Interaural Time Difference (ITD) and Level Difference (ILD) for Binaural Panning."""
@@ -384,6 +383,45 @@ def apply_3d_spatial_audio(y: np.ndarray, sr: int, mode: str, static_angle: floa
         y_R /= max_val
         
     return np.vstack((y_L, y_R)).T # Shape [samples, 2] for Stereo WAV
+
+# --- NEW: GRANULAR SYNTHESIS FUNCTION (Version 23.0) ---
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_granular_synthesis(y: np.ndarray, sr: int, grain_size_ms: float, stretch_factor: float, overlap: float = 0.5) -> np.ndarray:
+    """Applies Time-Stretching using Quantum Acoustic Granular Synthesis."""
+    grain_length = int(sr * (grain_size_ms / 1000.0))
+    if grain_length == 0: return y
+    
+    hop_length = int(grain_length * (1.0 - overlap))
+    if hop_length == 0: hop_length = 1
+    
+    # Target hop length for the output based on stretch factor
+    out_hop_length = int(hop_length * stretch_factor)
+    
+    # Calculate total number of grains
+    num_grains = 1 + (len(y) - grain_length) // hop_length
+    if num_grains <= 0: return y
+    
+    out_len = int(num_grains * out_hop_length + grain_length)
+    y_out = np.zeros(out_len)
+    
+    # Gaussian/Hanning window to avoid clicks between acoustic quanta
+    window = np.hanning(grain_length)
+    
+    for i in range(num_grains):
+        in_start = i * hop_length
+        in_end = in_start + grain_length
+        grain = y[in_start:in_end] * window
+        
+        out_start = i * out_hop_length
+        out_end = out_start + grain_length
+        y_out[out_start:out_end] += grain
+        
+    # Normalize to avoid clipping
+    max_val = np.max(np.abs(y_out))
+    if max_val > 0:
+        y_out /= max_val
+        
+    return y_out
 
 
 # --- PSYCHOACOUSTICS FUNCTIONS (Version 4.0) ---
@@ -545,7 +583,7 @@ def main():
 
 
     st.divider()
-    st.markdown("### ⚙️ System Info")
+    st.markdown("### ⚙ System Info")
     st.info(
         "Uses **Librosa** for extraction, **SciPy** for DSP, **PyWavelets** for"
         " CWT, and **Plotly** for interactive visualization."
@@ -658,7 +696,8 @@ def main():
       "👾 ADC & Quantization", 
       "🎧 3D Spatial Audio & 8D Panning", 
       "🤫 Psychoacoustic Masking",
-      "🛸 Acoustic Levitation", # NEW VERSION 22 TAB
+      "🛸 Acoustic Levitation", 
+      "⚛️ Granular Synthesis", # NEW VERSION 23 TAB
       "📊 Data Export",
   ])
 
@@ -2346,7 +2385,7 @@ def main():
             
             with col_graph1:
                 st.plotly_chart(fig_time, use_container_width=True)
-                st.info(f"⏱️️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
+                st.info(f"⏱️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
 
             # Frequency Domain Plot (zoomed around center freq)
             f_idx = np.where((freqs > f_c - 1000) & (freqs < f_c + 1000))[0]
@@ -2706,7 +2745,7 @@ def main():
                 st.success("✅ **THE TARGET IS VISIBLE & AUDIBLE!** The Target Tone is loud/far enough from the noise to be heard by human ears. Keep moving the Masker closer to the Target Frequency to see the illusion!")
 
   # ==========================================
-  # NEW TAB 24: Acoustic Levitation (Version 22.0)
+  # TAB 24: Acoustic Levitation
   # ==========================================
   with tabs[23]:
     st.header("Acoustic Levitation (Standing Wave Physics)")
@@ -2777,9 +2816,52 @@ def main():
             st.markdown(f"**Found {len(node_z)} stable levitation points.** To levitate heavier objects like water droplets, you need an SPL of around **160 dB** (which corresponds to {p_0:.0f} Pascals of raw physical pressure!). Since {lev_freq/1000:.1f} kHz is ultrasound, this jet-engine level sound won't deafen human ears, but it has enough physical momentum to fight gravity!")
 
   # ==========================================
-  # TAB 25: Data Export & PDF Report
+  # NEW TAB 25: Granular Synthesis (Version 23.0)
   # ==========================================
   with tabs[24]:
+    st.header("Granular Synthesis (Time-Stretching & Quantum Acoustics)")
+    st.markdown("In physics, matter can be broken down into fundamental particles (quanta/atoms). Similarly, **Granular Synthesis** breaks a continuous sound wave into tiny, independent acoustic particles called **Grains** (usually 10 to 100 milliseconds long). By rearranging, overlapping, and spacing out these grains, we can stretch time indefinitely without altering the pitch—creating the lush, ambient textures used in sci-fi movies!")
+    
+    col_gran1, col_gran2, col_gran3 = st.columns(3)
+    grain_size_ms = col_gran1.slider("Grain Size (ms)", 10.0, 100.0, 30.0, 5.0, help="Size of each acoustic quantum. Smaller grains = more robotic. Larger grains = more natural.")
+    stretch_factor = col_gran2.slider("Time Stretch Factor", 0.5, 4.0, 2.0, 0.1, help="1.0 is normal speed. 2.0 makes the audio twice as long. 0.5 makes it twice as fast.")
+    overlap = col_gran3.slider("Grain Overlap", 0.1, 0.9, 0.5, 0.1, help="How much the grains crossfade into each other. Higher overlap = smoother texture.")
+
+    if st.button("Synthesize Grains & Stretch Time"):
+        with st.spinner("Slicing audio into quantum grains and restructuring time..."):
+            
+            # Apply Granular Synthesis 
+            y_granular = apply_granular_synthesis(y, sr, grain_size_ms, stretch_factor, overlap)
+            
+            st.success(f"🌌 **Time-Stretching Complete!** \nOriginal Duration: **{duration:.2f}s** ➡️ New Stretched Duration: **{(len(y_granular)/sr):.2f}s**")
+            
+            # Audio playback
+            buffer_gran = io.BytesIO()
+            sf.write(buffer_gran, y_granular, sr, format="WAV")
+            st.audio(buffer_gran.getvalue(), format="audio/wav")
+
+            # Visualizing the difference (Plotting max 1 second to avoid browser freeze)
+            plot_limit = min(len(y), int(sr * 1.0)) 
+            plot_limit_gran = min(len(y_granular), int(sr * 1.0 * stretch_factor))
+            
+            t_orig = np.linspace(0, plot_limit/sr, plot_limit)
+            t_gran = np.linspace(0, plot_limit_gran/sr, plot_limit_gran)
+            
+            fig_gran = make_subplots(rows=2, cols=1, shared_xaxes=False, subplot_titles=("Original Audio Waveform (First 1 Second)", f"Granular Stretched Waveform ({stretch_factor}x - First {1.0*stretch_factor} Seconds)"))
+            
+            fig_gran.add_trace(go.Scatter(x=downsample_array(t_orig, 3000), y=downsample_array(y[:plot_limit], 3000), line=dict(color='#00BCD4', width=1)), row=1, col=1)
+            fig_gran.add_trace(go.Scatter(x=downsample_array(t_gran, 3000), y=downsample_array(y_granular[:plot_limit_gran], 3000), line=dict(color='#E91E63', width=1)), row=2, col=1)
+            
+            fig_gran.update_layout(template="plotly_dark", height=500, showlegend=False)
+            fig_gran.update_xaxes(title_text="Time (s)", row=2, col=1)
+            st.plotly_chart(fig_gran, use_container_width=True)
+            
+            st.info("💡 **Physics Insight:** Because we slice the audio into independent 'quanta' and apply a mathematical **Hanning window** (to prevent sharp clicking edges), we can spread these grains further apart in time. This creates a time-stretched sound that perfectly preserves the original pitch! It proves that time and frequency can be mathematically decoupled using granular structures.")
+
+  # ==========================================
+  # TAB 26: Data Export & PDF Report
+  # ==========================================
+  with tabs[25]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
