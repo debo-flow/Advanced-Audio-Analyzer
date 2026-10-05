@@ -384,7 +384,7 @@ def apply_3d_spatial_audio(y: np.ndarray, sr: int, mode: str, static_angle: floa
         
     return np.vstack((y_L, y_R)).T # Shape [samples, 2] for Stereo WAV
 
-# --- NEW: GRANULAR SYNTHESIS FUNCTION (Version 23.0) ---
+
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def apply_granular_synthesis(y: np.ndarray, sr: int, grain_size_ms: float, stretch_factor: float, overlap: float = 0.5) -> np.ndarray:
     """Applies Time-Stretching using Quantum Acoustic Granular Synthesis."""
@@ -394,17 +394,14 @@ def apply_granular_synthesis(y: np.ndarray, sr: int, grain_size_ms: float, stret
     hop_length = int(grain_length * (1.0 - overlap))
     if hop_length == 0: hop_length = 1
     
-    # Target hop length for the output based on stretch factor
     out_hop_length = int(hop_length * stretch_factor)
     
-    # Calculate total number of grains
     num_grains = 1 + (len(y) - grain_length) // hop_length
     if num_grains <= 0: return y
     
     out_len = int(num_grains * out_hop_length + grain_length)
     y_out = np.zeros(out_len)
     
-    # Gaussian/Hanning window to avoid clicks between acoustic quanta
     window = np.hanning(grain_length)
     
     for i in range(num_grains):
@@ -416,13 +413,38 @@ def apply_granular_synthesis(y: np.ndarray, sr: int, grain_size_ms: float, stret
         out_end = out_start + grain_length
         y_out[out_start:out_end] += grain
         
-    # Normalize to avoid clipping
     max_val = np.max(np.abs(y_out))
     if max_val > 0:
         y_out /= max_val
         
     return y_out
 
+# --- NEW: NON-LINEAR DISTORTION FUNCTION (Version 24.0) ---
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def apply_distortion(y: np.ndarray, dist_type: str, drive: float) -> np.ndarray:
+    """Applies non-linear analog distortion, saturation, or wavefolding to the signal."""
+    # Scale signal by drive (Gain)
+    y_driven = y * drive
+    
+    if dist_type == "Soft Clipping (Vacuum Tube)":
+        # Tanh provides smooth analog-style soft clipping
+        y_out = np.tanh(y_driven) / np.tanh(drive) if drive > 0 else y
+    elif dist_type == "Hard Clipping (Transistor Fuzz)":
+        # Harsh digital/transistor clipping at -1 and +1
+        y_out = np.clip(y_driven, -1.0, 1.0)
+    elif dist_type == "Sine Wavefolding (Buchla Synth)":
+        # Folds the wave back on itself continuously instead of clipping
+        y_out = np.sin(y_driven * np.pi / 2)
+    else: # Triangle Wavefolding
+        # Hard zigzag folding
+        y_out = (2 / np.pi) * np.arcsin(np.sin(y_driven * np.pi / 2))
+        
+    # Normalize output to prevent deafening volume jumps, but preserve the new shape
+    max_val = np.max(np.abs(y_out))
+    if max_val > 0:
+        y_out = y_out / max_val
+        
+    return y_out
 
 # --- PSYCHOACOUSTICS FUNCTIONS (Version 4.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
@@ -697,7 +719,8 @@ def main():
       "🎧 3D Spatial Audio & 8D Panning", 
       "🤫 Psychoacoustic Masking",
       "🛸 Acoustic Levitation", 
-      "⚛️ Granular Synthesis", # NEW VERSION 23 TAB
+      "⚛️ Granular Synthesis", 
+      "🎸 Analog Saturation", # NEW VERSION 24 TAB
       "📊 Data Export",
   ])
 
@@ -2816,7 +2839,7 @@ def main():
             st.markdown(f"**Found {len(node_z)} stable levitation points.** To levitate heavier objects like water droplets, you need an SPL of around **160 dB** (which corresponds to {p_0:.0f} Pascals of raw physical pressure!). Since {lev_freq/1000:.1f} kHz is ultrasound, this jet-engine level sound won't deafen human ears, but it has enough physical momentum to fight gravity!")
 
   # ==========================================
-  # NEW TAB 25: Granular Synthesis (Version 23.0)
+  # TAB 25: Granular Synthesis
   # ==========================================
   with tabs[24]:
     st.header("Granular Synthesis (Time-Stretching & Quantum Acoustics)")
@@ -2859,9 +2882,111 @@ def main():
             st.info("💡 **Physics Insight:** Because we slice the audio into independent 'quanta' and apply a mathematical **Hanning window** (to prevent sharp clicking edges), we can spread these grains further apart in time. This creates a time-stretched sound that perfectly preserves the original pitch! It proves that time and frequency can be mathematically decoupled using granular structures.")
 
   # ==========================================
-  # TAB 26: Data Export & PDF Report
+  # NEW TAB 26: Analog Saturation & Wavefolding (Version 24.0)
   # ==========================================
   with tabs[25]:
+    st.header("Non-Linear Wavefolding & Saturation (Analog Physics)")
+    st.markdown("Digital audio systems are perfectly linear. However, pushing a signal too hard into analog gear (like vacuum tubes, transistors, or tape) causes it to mathematically warp and distort. This **Non-Linearity** creates entirely new harmonic frequencies that didn't exist in the original audio, adding 'warmth', 'fuzz', or metallic grit to the sound!")
+    
+    col_dist1, col_dist2 = st.columns(2)
+    dist_type = col_dist1.selectbox("Analog Distortion Circuit Type", [
+        "Soft Clipping (Vacuum Tube)", 
+        "Hard Clipping (Transistor Fuzz)", 
+        "Sine Wavefolding (Buchla Synth)", 
+        "Triangle Wavefolding"
+    ])
+    drive = col_dist2.slider("Drive / Input Gain (Multiplier)", 1.0, 10.0, 3.0, 0.5, help="Pushes the audio signal into the non-linear distortion threshold.")
+
+    if st.button("Apply Analog Saturation Circuit"):
+        with st.spinner(f"Routing audio through {dist_type} simulator..."):
+            
+            # 1. Apply Distortion
+            y_distorted = apply_distortion(y, dist_type, drive)
+            
+            st.success(f"🎸 **Analog Circuit Processing Complete:** {dist_type} applied with {drive}x Drive.")
+            
+            # 2. Audio Playback
+            buffer_dist = io.BytesIO()
+            sf.write(buffer_dist, y_distorted, sr, format="WAV")
+            st.audio(buffer_dist.getvalue(), format="audio/wav")
+
+            # 3. Transfer Function Plot (Input vs Output curve)
+            st.subheader("1. Transfer Function (Input vs. Output)")
+            st.markdown("This curve shows exactly how the physical analog circuit behaves. A perfectly straight diagonal line means clean digital audio. Bends, flatlines, or zig-zags show how the circuit squashes or folds loud signals.")
+            
+            # Generate a clean sweep from -1 to 1 to show the mathematical curve
+            x_sweep = np.linspace(-1.0, 1.0, 1000)
+            y_curve = apply_distortion(x_sweep, dist_type, drive)
+            
+            fig_curve = go.Figure()
+            fig_curve.add_trace(go.Scatter(x=x_sweep, y=x_sweep, mode='lines', line=dict(color='rgba(255, 255, 255, 0.2)', width=1, dash='dash'), name='Perfectly Linear (Digital)'))
+            fig_curve.add_trace(go.Scatter(x=x_sweep, y=y_curve, mode='lines', line=dict(color='#FF9800', width=3), name=f'{dist_type} Curve'))
+            
+            fig_curve.update_layout(
+                xaxis_title="Input Voltage (In)",
+                yaxis_title="Output Voltage (Out)",
+                template="plotly_dark",
+                height=400, width=400,
+                yaxis=dict(scaleanchor="x", scaleratio=1), # Keep it square
+                margin=dict(l=0, r=0, b=0, t=20)
+            )
+            
+            # 4. Waveform Comparison
+            plot_samples = min(len(y), int(sr * 0.05)) # Show 50ms snippet
+            t_plot = np.linspace(0, plot_samples/sr, plot_samples)
+            
+            fig_wave = go.Figure()
+            # Normalize original for fair visual comparison
+            y_orig_norm = y[:plot_samples] / np.max(np.abs(y[:plot_samples])) if np.max(np.abs(y[:plot_samples])) > 0 else y[:plot_samples]
+            fig_wave.add_trace(go.Scatter(x=t_plot*1000, y=y_orig_norm, mode='lines', line=dict(color='rgba(0, 188, 212, 0.4)', width=1.5), name="Original Clean Audio"))
+            fig_wave.add_trace(go.Scatter(x=t_plot*1000, y=y_distorted[:plot_samples], mode='lines', line=dict(color='#E91E63', width=2), name="Saturated / Folded Audio"))
+            
+            fig_wave.update_layout(
+                title="Time Domain Waveform Comparison (50ms)",
+                xaxis_title="Time (ms)",
+                yaxis_title="Amplitude",
+                template="plotly_dark",
+                height=400,
+                margin=dict(l=0, r=0, b=0, t=40)
+            )
+
+            # Display side-by-side
+            col_ui1, col_ui2 = st.columns([1, 2])
+            with col_ui1:
+                st.plotly_chart(fig_curve, use_container_width=True)
+            with col_ui2:
+                st.plotly_chart(fig_wave, use_container_width=True)
+
+            # 5. Frequency Spectrum Comparison (Showing Harmonics)
+            st.subheader("2. Spectral Harmonic Generation")
+            
+            freqs_orig, mag_orig, mag_db_orig = compute_fft(y, sr)
+            freqs_dist, mag_dist, mag_db_dist = compute_fft(y_distorted, sr)
+            
+            valid_idx = freqs_orig <= (sr / 2.0)
+            f_orig_p, m_orig_p = downsample_fft(freqs_orig[valid_idx], mag_db_orig[valid_idx], 5000)
+            f_dist_p, m_dist_p = downsample_fft(freqs_dist[valid_idx], mag_db_dist[valid_idx], 5000)
+            
+            fig_fft_dist = go.Figure()
+            fig_fft_dist.add_trace(go.Scatter(x=f_orig_p, y=m_orig_p, mode='lines', line=dict(color='rgba(0, 188, 212, 0.4)', width=1.5), fill='tozeroy', name='Original Clean Spectrum'))
+            fig_fft_dist.add_trace(go.Scatter(x=f_dist_p, y=m_dist_p, mode='lines', line=dict(color='#FFC107', width=1.5), name='Distorted Harmonic Spectrum'))
+            
+            fig_fft_dist.update_layout(
+                xaxis_title="Frequency (Hz)",
+                yaxis_title="Magnitude (dB)",
+                template="plotly_dark",
+                height=400,
+                xaxis_type="log", # Log scale better shows new harmonics
+                margin=dict(l=0, r=0, b=0, t=20)
+            )
+            st.plotly_chart(fig_fft_dist, use_container_width=True)
+            
+            st.info("💡 **Physics Insight:** Look at the yellow Frequency Spectrum. The original audio (blue) had only a few natural frequencies. But because clipping/wavefolding changes the physical shape of the wave (making it squarish or zigzag), Joseph Fourier's math dictates that **brand new high-frequency harmonics** must be born! This is what gives electric guitars and analog synthesizers their aggressive, warm, or metallic 'crunch'.")
+
+  # ==========================================
+  # TAB 27: Data Export & PDF Report
+  # ==========================================
+  with tabs[26]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
