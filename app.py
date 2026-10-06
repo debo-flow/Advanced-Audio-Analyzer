@@ -22,6 +22,13 @@ import scipy.signal
 import soundfile as sf
 import streamlit as st
 
+# --- NEW: Image Processing for Steganography ---
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 # --- NEW: Live Streaming Library ---
 import av
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
@@ -441,7 +448,6 @@ def apply_distortion(y: np.ndarray, dist_type: str, drive: float) -> np.ndarray:
     return y_out
 
 
-# --- NEW: PHASE VOCODER & CROSS-SYNTHESIS (Version 25.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
 def apply_cross_synthesis(y_mod: np.ndarray, sr: int, carrier_type: str, carrier_freq: float) -> np.ndarray:
     """Applies Spectral Cross-Synthesis (Vocoder) between a voice modulator and a generated carrier."""
@@ -489,6 +495,75 @@ def apply_cross_synthesis(y_mod: np.ndarray, sr: int, carrier_type: str, carrier
         
     return y_out
 
+# --- NEW: AUDIO STEGANOGRAPHY (Version 26.0) ---
+@st.cache_data(hash_funcs=FAST_NP_HASH)
+def generate_spectrogram_art(text: str, sr: int = 44100, duration: float = 3.0, min_freq: float = 1000.0, max_freq: float = 10000.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Converts a text string into an audio signal using Inverse STFT (ISTFT) so it appears on a spectrogram."""
+    n_fft = 2048
+    hop_length = 512
+    
+    num_frames = int((duration * sr) / hop_length)
+    num_bins = n_fft // 2 + 1
+    
+    # Initialize empty magnitude spectrogram
+    mag_spec = np.zeros((num_bins, num_frames))
+    
+    # Map target frequencies to FFT bins
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    min_bin = np.argmin(np.abs(freqs - min_freq))
+    max_bin = np.argmin(np.abs(freqs - max_freq))
+    
+    if max_bin <= min_bin:
+        max_bin = min_bin + 10
+        
+    box_height = max_bin - min_bin
+    box_width = num_frames
+    
+    # Create the text image
+    if HAS_PIL:
+        # Create a small image first
+        base_width = max(len(text) * 8, 20)
+        base_height = 15
+        small_img = Image.new('L', (base_width, base_height), color=0)
+        draw = ImageDraw.Draw(small_img)
+        
+        # Draw text (centered)
+        draw.text((2, 2), text, fill=255)
+        
+        # Resize to fit the target spectrogram box using nearest neighbor to keep blocky, sharp frequencies
+        try:
+            resample_filter = Image.Resampling.NEAREST
+        except AttributeError:
+            resample_filter = Image.NEAREST # Older PIL versions
+            
+        img = small_img.resize((box_width, box_height), resample_filter)
+        img_arr = np.array(img, dtype=float) / 255.0
+    else:
+        # Fallback if PIL is not installed: Draw simple noise blocks
+        img_arr = np.random.rand(box_height, box_width) * 0.5
+        
+    # Flip upside down because bin 0 is at the bottom of the matrix but row 0 is at the top of the image
+    img_arr = np.flipud(img_arr)
+    
+    # Place text matrix into the spectrogram
+    mag_spec[min_bin:max_bin, :] = img_arr * 50.0  # Boost amplitude
+    
+    # Convert Magnitude to Complex numbers by adding Random Phase
+    # Random phase produces the characteristic "alien noise" sound
+    random_phase = np.random.uniform(-np.pi, np.pi, mag_spec.shape)
+    S_complex = mag_spec * np.exp(1j * random_phase)
+    
+    # Inverse STFT to convert back to time-domain audio
+    y_art = librosa.istft(S_complex, hop_length=hop_length)
+    
+    # Normalize to prevent clipping
+    max_val = np.max(np.abs(y_art))
+    if max_val > 0:
+        y_art /= max_val
+        
+    t_axis = librosa.frames_to_time(np.arange(num_frames), sr=sr, hop_length=hop_length)
+        
+    return y_art, mag_spec, t_axis, freqs
 
 # --- PSYCHOACOUSTICS FUNCTIONS (Version 4.0) ---
 @st.cache_data(hash_funcs=FAST_NP_HASH)
@@ -765,7 +840,8 @@ def main():
       "🛸 Acoustic Levitation", 
       "⚛️ Granular Synthesis", 
       "🎸 Analog Saturation", 
-      "🤖 Phase Vocoder", # NEW VERSION 25 TAB
+      "🤖 Phase Vocoder", 
+      "🕵️ Spectrogram Art", # NEW VERSION 26 TAB
       "📊 Data Export",
   ])
 
@@ -2453,7 +2529,7 @@ def main():
             
             with col_graph1:
                 st.plotly_chart(fig_time, use_container_width=True)
-                st.info(f"⏱️️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
+                st.info(f"⏱️ **Time Spread ($\Delta t$):** {delta_t_num*1000:.2f} ms")
 
             # Frequency Domain Plot (zoomed around center freq)
             f_idx = np.where((freqs > f_c - 1000) & (freqs < f_c + 1000))[0]
@@ -3029,7 +3105,7 @@ def main():
             st.info("💡 **Physics Insight:** Look at the yellow Frequency Spectrum. The original audio (blue) had only a few natural frequencies. But because clipping/wavefolding changes the physical shape of the wave (making it squarish or zigzag), Joseph Fourier's math dictates that **brand new high-frequency harmonics** must be born! This is what gives electric guitars and analog synthesizers their aggressive, warm, or metallic 'crunch'.")
 
   # ==========================================
-  # NEW TAB 27: Phase Vocoder & Cross-Synthesis (Version 25.0)
+  # TAB 27: Phase Vocoder
   # ==========================================
   with tabs[26]:
     st.header("Phase Vocoder & Spectral Cross-Synthesis")
@@ -3082,9 +3158,73 @@ def main():
             st.latex(r"\text{S}_{out}(f, t) = \left|\text{S}_{voice}(f, t)\right| \times \left|\text{S}_{synth}(f, t)\right| \cdot e^{i \angle \text{S}_{synth}(f, t)}")
 
   # ==========================================
-  # TAB 28: Data Export & PDF Report
+  # NEW TAB 28: Audio Steganography (Version 26.0)
   # ==========================================
   with tabs[27]:
+    st.header("Audio Steganography (Spectrogram Art)")
+    st.markdown("We usually use an FFT to turn audio into a 2D picture (a Spectrogram). But what if we do the exact opposite? Using an **Inverse-STFT**, this lab allows you to take text, draw it onto a mathematical grid, and convert those pixels directly into sound waves! The resulting audio will sound like alien noise, but anyone who analyzes it in a Spectrogram will see your hidden message.")
+    
+    if not HAS_PIL:
+        st.error("⚠️ **Pillow Library Missing:** Please run `pip install Pillow` in your terminal to use the text-to-image engine.")
+    else:
+        st.info("🕵️ **Instruction:** Write a short secret word. The engine will synthesize it into an audio file. You can then download that file and upload it back into the **Tab 4 (Spectrogram)** of this app to 'decode' and see your secret message!")
+        
+        col_steg1, col_steg2 = st.columns(2)
+        secret_text = col_steg1.text_input("Secret Word (Max 10 chars)", value="HELLO", max_chars=10)
+        steg_dur = col_steg2.slider("Audio Duration (seconds)", 1.0, 5.0, 2.0, 0.5, help="Longer duration stretches the text horizontally.")
+        
+        col_steg3, col_steg4 = st.columns(2)
+        min_f = col_steg3.slider("Minimum Frequency (Hz)", 100.0, 5000.0, 1000.0, step=100.0)
+        max_f = col_steg4.slider("Maximum Frequency (Hz)", 5000.0, 20000.0, 10000.0, step=500.0, help="The frequency band where your text will be printed.")
+
+        if st.button("Synthesize Hidden Audio", type="primary"):
+            with st.spinner("Converting text pixels to complex frequency matrices..."):
+                
+                sr_steg = 44100
+                y_art, mag_spec, t_axis, freqs_arr = generate_spectrogram_art(
+                    text=secret_text.upper(), sr=sr_steg, duration=steg_dur, min_freq=min_f, max_freq=max_f
+                )
+                
+                st.success("✅ **Steganography Complete!** The text is now physically embedded inside this noise.")
+                
+                # 1. Play the noisy audio
+                buffer_art = io.BytesIO()
+                sf.write(buffer_art, y_art, sr_steg, format="WAV")
+                st.audio(buffer_art.getvalue(), format="audio/wav")
+                
+                st.download_button(label="⬇️ Download Secret Audio to test in Spectrogram Tab", data=buffer_art.getvalue(), file_name=f"secret_{secret_text}.wav", mime="audio/wav")
+                
+                st.divider()
+                
+                # 2. Show the visual proof
+                st.subheader("Visual Proof (What the Decoder sees)")
+                st.markdown("If you run this noise through a Short-Time Fourier Transform (STFT), this is the exact frequency-domain heatmap it produces:")
+                
+                # We plot the generated mag_spec just like we do in Tab 4
+                # Downsample for Plotly speed
+                freq_factor = max(1, mag_spec.shape[0] // 300)
+                time_factor = max(1, mag_spec.shape[1] // 400)
+                
+                mag_spec_plot = mag_spec[::freq_factor, ::time_factor]
+                t_plot = t_axis[::time_factor]
+                f_plot = freqs_arr[::freq_factor]
+                
+                fig_steg = go.Figure(data=go.Heatmap(
+                    z=mag_spec_plot, x=t_plot, y=f_plot, colorscale="Inferno"
+                ))
+                fig_steg.update_layout(
+                    xaxis_title="Time (s)",
+                    yaxis_title="Frequency (Hz)",
+                    template="plotly_dark",
+                    height=500,
+                    margin=dict(l=0, r=0, b=0, t=20)
+                )
+                st.plotly_chart(fig_steg, use_container_width=True)
+
+  # ==========================================
+  # TAB 29: Data Export & PDF Report
+  # ==========================================
+  with tabs[28]:
     st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
