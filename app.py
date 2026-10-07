@@ -22,6 +22,9 @@ import scipy.signal
 import soundfile as sf
 import streamlit as st
 
+# --- IMPORT MODULAR LABS ---
+import blackhole_lab
+
 # --- NEW: Image Processing for Steganography ---
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -3220,12 +3223,21 @@ def main():
                     margin=dict(l=0, r=0, b=0, t=20)
                 )
                 st.plotly_chart(fig_steg, use_container_width=True)
+            
 
   # ==========================================
-  # TAB 29: Data Export & PDF Report
+  # BLACK HOLE RELATIVISTIC LAB
   # ==========================================
-  with tabs[28]:
-    st.header("Export Analysis Data & Reports")
+  with tabs[-2]:
+      blackhole_lab.render_blackhole_tab(y, sr)
+
+
+  # ==========================================
+  # Data Export & PDF Report
+  # ==========================================
+  with tabs[-1]:
+      st.header("Export Analysis Data & Reports")
+
 
     col_exp1, col_exp2 = st.columns(2)
 
