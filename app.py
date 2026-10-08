@@ -3397,20 +3397,20 @@ def main():
                         mime="application/pdf"
                     )
 
-    with col_exp2:
-        st.subheader("📊 Raw Data Export")
+          with col_exp2:
+            st.subheader("📊 Raw Data Export")
         
         # FFT Data
-        freqs_exp, mag_exp, mag_db_exp = compute_fft(y, sr)
-        freqs_plot, mag_exp_plot = downsample_fft(freqs_exp, mag_exp, 5000)
-        _, mag_db_exp_plot = downsample_fft(freqs_exp, mag_db_exp, 5000)
+         freqs_exp, mag_exp, mag_db_exp = compute_fft(y, sr)
+         freqs_plot, mag_exp_plot = downsample_fft(freqs_exp, mag_exp, 5000)
+         _, mag_db_exp_plot = downsample_fft(freqs_exp, mag_db_exp, 5000)
 
-        df_fft = pd.DataFrame({
-            "Frequency_Hz": freqs_plot,
-            "Magnitude": mag_exp_plot,
-            "Magnitude_dB": mag_db_exp_plot,
-        })
-        st.download_button("Download FFT Data (CSV)", df_fft.to_csv(index=False).encode("utf-8"), "fft_data.csv", "text/csv")
+         df_fft = pd.DataFrame({
+             "Frequency_Hz": freqs_plot,
+             "Magnitude": mag_exp_plot,
+             "Magnitude_dB": mag_db_exp_plot,
+         })
+         st.download_button("Download FFT Data (CSV)", df_fft.to_csv(index=False).encode("utf-8"), "fft_data.csv", "text/csv")
 
         # Audio Features Data
         rms = librosa.feature.rms(y=y)[0]
