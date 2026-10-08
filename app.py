@@ -2058,7 +2058,7 @@ def main():
                 z=-Z_abs,
                 x=x,
                 y=y,
-                colorscale="copper", 
+                colorscale="Oranges", 
                 showscale=False
             ))
 
