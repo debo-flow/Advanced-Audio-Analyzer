@@ -21,6 +21,9 @@ import scipy.fft
 import scipy.signal
 import soundfile as sf
 import streamlit as st
+import blackhole_lab
+import quantum_lab   
+
 
 # --- NEW: Image Processing for Steganography ---
 try:
@@ -880,6 +883,8 @@ def main():
       "🤖 Phase Vocoder", 
       "🕵️ Spectrogram Art", 
       "🌀 Shepard Tone Illusion", # NEW VERSION 27 TAB
+      "🌌 Black Hole",
+      "⚛️ Quantum Tunneling",
       "📊 Data Export",
   ])
 
@@ -3327,12 +3332,23 @@ def main():
                 margin=dict(l=0, r=0, b=0, t=20)
             )
             st.plotly_chart(fig_shep, use_container_width=True)
+  # ==========================================
+  # TAB: BLACK HOLE RELATIVISTIC LAB
+  # ==========================================
+  with tabs[-3]: 
+      blackhole_lab.render_blackhole_tab(y, sr)
 
   # ==========================================
-  # TAB 30: Data Export & PDF Report
+  # NEW TAB: QUANTUM MECHANICS LAB
   # ==========================================
-  with tabs[29]:
-    st.header("Export Analysis Data & Reports")
+  with tabs[-2]: 
+      quantum_lab.render_quantum_tab(y, sr)
+
+  # ==========================================
+  # TAB: Data Export & PDF Report
+  # ==========================================
+  with tabs[-1]: 
+      st.header("Export Analysis Data & Reports")
 
     col_exp1, col_exp2 = st.columns(2)
 
