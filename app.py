@@ -3347,82 +3347,74 @@ def main():
   # ==========================================
   # TAB: Data Export & PDF Report
   # ==========================================
-  with tabs[-1]: 
-      st.header("Export Analysis Data & Reports")    
-      col_exp1, col_exp2 = st.columns(2)   
+  with tabs[-1]:
+      st.header("Export Analysis Data & Reports")
+      
+      col_exp1, col_exp2 = st.columns(2)
+      
       with col_exp1:
+          st.subheader("📄 Automated PDF Lab Report")
+          st.markdown("Generate a comprehensive PDF summary of the audio analysis.")
+          
+          if st.button("Generate PDF Report", type="primary"):
+              with st.spinner("Compiling scientific report..."):
+                  if FPDF is None:
+                      st.error("FPDF library is not installed. Please install it to use PDF export.")
+                  else:
+                      freqs_exp, mag_exp, _ = compute_fft(y, sr)
+                      dom_idx = np.argmax(mag_exp)
+                      dom_freq = freqs_exp[dom_idx]
+                      fund_mag = mag_exp[dom_idx]
+                      
+                      harmonic_sq_sum = 0.0
+                      for i in range(2, 11):
+                          h_freq = dom_freq * i
+                          if h_freq > freqs_exp[-1]:
+                              break
+                          idx = np.argmin(np.abs(freqs_exp - h_freq))
+                          window = mag_exp[max(0, idx - 3) : min(len(mag_exp), idx + 4)]
+                          h_mag = np.max(window) if len(window) > 0 else 0
+                          harmonic_sq_sum += h_mag**2
+                      thd = ((np.sqrt(harmonic_sq_sum)) / fund_mag) * 100 if fund_mag > 0 else 0.0
+                      
+                      rt60_exp, _, _, _ = estimate_rt60(y, sr)
+                      rms_exp = librosa.feature.rms(y=y)[0]
+                      zcr_exp = librosa.feature.zero_crossing_rate(y)[0]
+                      
+                      pdf_bytes = create_lab_report(
+                          file_name=file_name, sr=sr, duration=duration,
+                          peak_amp=peak_amp, rms_mean=np.mean(rms_exp),
+                          rt60=rt60_exp, dom_freq=dom_freq, thd=thd
+                      )
+                      
+                      st.success("Report Generated Successfully!")
+                      st.download_button(
+                          label="📥 Download PDF Lab Report",
+                          data=pdf_bytes,
+                          file_name=f"Lab_Report_{file_name.split('.')[0]}.pdf",
+                          mime="application/pdf"
+                      )
 
-        st.subheader("📄 Automated PDF Lab Report")
-        st.markdown("Generate a comprehensive PDF summary of the audio analysis.")
-        
-        if st.button("Generate PDF Report", type="primary"):
-            with st.spinner("Compiling scientific report..."):
-                if FPDF is None:
-                    st.error("FPDF library is not installed. Please run `pip install fpdf` in your terminal.")
-                else:
-                    # Fetching cached data for the report
-                    freqs_exp, mag_exp, _ = compute_fft(y, sr)
-                    dom_idx = np.argmax(mag_exp)
-                    dom_freq = freqs_exp[dom_idx]
-                    fund_mag = mag_exp[dom_idx]
+      with col_exp2:
+          st.subheader("📊 Raw Data Export")
+          
+          freqs_exp, mag_exp, mag_db_exp = compute_fft(y, sr)
+          freqs_plot, mag_exp_plot = downsample_fft(freqs_exp, mag_exp, 5000)
+          _, mag_db_exp_plot = downsample_fft(freqs_exp, mag_db_exp, 5000)
 
-                    # Recalculate THD quickly
-                    harmonic_sq_sum = 0.0
-                    for i in range(2, 11):
-                        h_freq = dom_freq * i
-                        if h_freq > freqs_exp[-1]:
-                            break
-                        idx = np.argmin(np.abs(freqs_exp - h_freq))
-                        window = mag_exp[max(0, idx - 3) : min(len(mag_exp), idx + 4)]
-                        h_mag = np.max(window) if len(window) > 0 else 0
-                        harmonic_sq_sum += h_mag**2
-                    thd = ((np.sqrt(harmonic_sq_sum) / fund_mag) * 100.0) if fund_mag > 0 else 0.0
+          df_fft = pd.DataFrame({
+              "Frequency_Hz": freqs_plot,
+              "Magnitude": mag_exp_plot,
+              "Magnitude_dB": mag_db_exp_plot,
+          })
+          st.download_button("Download FFT Data (CSV)", df_fft.to_csv(index=False).encode("utf-8"), "fft_data.csv", "text/csv")
 
-                    rt60_exp, _, _, _, _, _, _ = estimate_rt60(y, sr)
-                    rms_exp = librosa.feature.rms(y=y)[0]
-                    zcr_exp = librosa.feature.zero_crossing_rate(y)[0]
+          rms = librosa.feature.rms(y=y)[0]
+          zcr = librosa.feature.zero_crossing_rate(y)[0]
+          times = librosa.frames_to_time(range(len(rms)), sr=sr)
+          df_feat = pd.DataFrame({"Time_s": times, "RMS_Energy": rms, "Zero_Crossing_Rate": zcr})
+          st.download_button("Download Audio Features (CSV)", df_feat.to_csv(index=False).encode("utf-8"), "audio_features.csv", "text/csv")
 
-                    # Generate PDF
-                    pdf_bytes = create_lab_report(
-                        file_name=file_name, sr=sr, duration=duration, num_samples=num_samples,
-                        peak_amp=peak_amp, rms_mean=np.mean(rms_exp), zcr_mean=np.mean(zcr_exp),
-                        rt60=rt60_exp, dom_freq=dom_freq, thd=thd
-                    )
-
-                    st.success("Report Generated Successfully!")
-                    st.download_button(
-                        label="⬇️ Download PDF Lab Report",
-                        data=pdf_bytes,
-                        file_name=f"Lab_Report_{file_name.split('.')[0]}.pdf",
-                        mime="application/pdf"
-                    )
-
-          with col_exp2:
-            st.subheader("📊 Raw Data Export")
-        
-        # FFT Data
-         freqs_exp, mag_exp, mag_db_exp = compute_fft(y, sr)
-         freqs_plot, mag_exp_plot = downsample_fft(freqs_exp, mag_exp, 5000)
-         _, mag_db_exp_plot = downsample_fft(freqs_exp, mag_db_exp, 5000)
-
-         df_fft = pd.DataFrame({
-             "Frequency_Hz": freqs_plot,
-             "Magnitude": mag_exp_plot,
-             "Magnitude_dB": mag_db_exp_plot,
-         })
-         st.download_button("Download FFT Data (CSV)", df_fft.to_csv(index=False).encode("utf-8"), "fft_data.csv", "text/csv")
-
-        # Audio Features Data
-        rms = librosa.feature.rms(y=y)[0]
-        zcr = librosa.feature.zero_crossing_rate(y)[0]
-        times = librosa.frames_to_time(range(len(rms)), sr=sr)
-        df_feat = pd.DataFrame({"Time_s": times, "RMS_Energy": rms, "Zero_Crossing_Rate": zcr})
-        st.download_button("Download Audio Features (CSV)", df_feat.to_csv(index=False).encode("utf-8"), "audio_features.csv", "text/csv")
-
-        # Mono Audio
-        buffer_mono = io.BytesIO()
-        sf.write(buffer_mono, y, sr, format="WAV")
-        st.download_button(label="Download Mono WAV", data=buffer_mono.getvalue(), file_name="mono_converted.wav", mime="audio/wav")
-
-if __name__ == "__main__":
-  main()
+          buffer_mono = io.BytesIO()
+          sf.write(buffer_mono, y, sr, format="WAV")
+          st.download_button(label="Download Mono WAV", data=buffer_mono.getvalue(), file_name="mono_converted.wav", mime="audio/wav")
