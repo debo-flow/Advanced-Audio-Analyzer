@@ -3348,11 +3348,10 @@ def main():
   # TAB: Data Export & PDF Report
   # ==========================================
   with tabs[-1]: 
-      st.header("Export Analysis Data & Reports")
+      st.header("Export Analysis Data & Reports")    
+      col_exp1, col_exp2 = st.columns(2)   
+      with col_exp1:
 
-    col_exp1, col_exp2 = st.columns(2)
-
-    with col_exp1:
         st.subheader("📄 Automated PDF Lab Report")
         st.markdown("Generate a comprehensive PDF summary of the audio analysis.")
         
